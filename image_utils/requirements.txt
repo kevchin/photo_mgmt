@@ -1,0 +1,23 @@
+# Image processing and metadata
+Pillow>=10.0.0
+piexif>=1.1.0
+pillow-heif>=0.13.0
+ImageHash>=4.3.1
+
+# For date parsing and organization
+python-dateutil>=2.8.0
+
+# Database - PostgreSQL with pgvector support
+psycopg2-binary>=2.9.9
+
+# Local AI models for caption generation (RECOMMENDED - no API costs)
+transformers>=4.35.0
+torch>=2.0.0
+torchvision>=0.15.0
+sentence-transformers>=2.2.2
+
+# Optional: OpenAI API (if you want to use cloud APIs instead of local models)
+# openai>=1.0.0
+
+# Optional: progress bars
+tqdm>=4.66.0
