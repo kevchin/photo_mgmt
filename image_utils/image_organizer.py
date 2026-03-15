@@ -47,6 +47,24 @@ def parse_exif_date(date_str: str) -> Optional[datetime]:
         except ValueError: continue
     return None
 
+def convert_gps_coordinate(value, ref):
+    """Convert GPS EXIF data to decimal degrees"""
+    if not value or len(value) < 3:
+        return None
+    try:
+        # GPS coordinates are stored as degrees, minutes, seconds
+        degrees = float(value[0]) if isinstance(value[0], (int, float)) else float(value[0].num) / float(value[0].den)
+        minutes = float(value[1]) if isinstance(value[1], (int, float)) else float(value[1].num) / float(value[1].den)
+        seconds = float(value[2]) if isinstance(value[2], (int, float)) else float(value[2].num) / float(value[2].den)
+        
+        decimal = degrees + (minutes / 60.0) + (seconds / 3600.0)
+        
+        if ref in ['S', 'W']:
+            decimal = -decimal
+        return decimal
+    except (Exception, AttributeError):
+        return None
+
 def extract_metadata(file_path: Path) -> dict:
     metadata = {'exif_date': None, 'parsed_date': None, 'year': None, 'month': None, 'day': None,
                 'gps_latitude': None, 'gps_longitude': None, 'camera_make': None, 'camera_model': None}
@@ -58,8 +76,11 @@ def extract_metadata(file_path: Path) -> dict:
         with Image.open(file_path) as img:
             if hasattr(img, '_getexif') and img._getexif():
                 exif = img._getexif()
-                TAGS = {271: 'make', 272: 'model', 306: 'datetime', 36867: 'datetime_original'}
+                TAGS = {271: 'make', 272: 'model', 306: 'datetime', 36867: 'datetime_original',
+                        34853: 'gps_info'}
                 exif_data = {TAGS.get(tid, tid): v for tid, v in exif.items()}
+                
+                # Extract date information
                 date_str = exif_data.get('datetime_original') or exif_data.get('datetime')
                 if date_str:
                     metadata['exif_date'] = date_str
@@ -68,6 +89,21 @@ def extract_metadata(file_path: Path) -> dict:
                         metadata['parsed_date'] = parsed.isoformat()
                         metadata['year'], metadata['month'], metadata['day'] = parsed.year, parsed.month, parsed.day
                 metadata['camera_make'], metadata['camera_model'] = exif_data.get('make'), exif_data.get('model')
+                
+                # Extract GPS information
+                gps_info = exif_data.get('gps_info') or exif.get(34853)
+                if gps_info:
+                    # GPS tags: 1=lat_ref, 2=latitude, 3=lon_ref, 4=longitude
+                    lat_ref = gps_info.get(1)  # 'N' or 'S'
+                    lat = gps_info.get(2)      # tuple of (deg, min, sec)
+                    lon_ref = gps_info.get(3)  # 'E' or 'W'
+                    lon = gps_info.get(4)      # tuple of (deg, min, sec)
+                    
+                    if lat and lat_ref:
+                        metadata['gps_latitude'] = convert_gps_coordinate(lat, lat_ref)
+                    if lon and lon_ref:
+                        metadata['gps_longitude'] = convert_gps_coordinate(lon, lon_ref)
+                        
             if not metadata['parsed_date']:
                 dt = datetime.fromtimestamp(os.path.getmtime(file_path))
                 metadata['parsed_date'], metadata['year'], metadata['month'], metadata['day'] = dt.isoformat(), dt.year, dt.month, dt.day

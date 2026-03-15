@@ -31,6 +31,7 @@ import hashlib
 # Check for required packages
 try:
     from PIL import Image
+    from PIL.ExifTags import TAGS, GPSTAGS
 except ImportError:
     print("Error: Pillow not installed. Run: pip install pillow")
     sys.exit(1)
@@ -281,6 +282,104 @@ class EmbeddingGenerator:
             return []
 
 
+def convert_gps_coordinate(value, ref):
+    """Convert GPS EXIF data to decimal degrees"""
+    if not value or len(value) < 3:
+        return None
+    try:
+        # GPS coordinates are stored as degrees, minutes, seconds
+        def to_float(v):
+            if isinstance(v, (int, float)):
+                return float(v)
+            elif hasattr(v, 'num') and hasattr(v, 'den'):
+                return float(v.num) / float(v.den)
+            else:
+                return float(v)
+        
+        degrees = to_float(value[0])
+        minutes = to_float(value[1])
+        seconds = to_float(value[2])
+        
+        decimal = degrees + (minutes / 60.0) + (seconds / 3600.0)
+        
+        if ref in ['S', 'W']:
+            decimal = -decimal
+        return decimal
+    except (Exception, AttributeError):
+        return None
+
+
+def extract_image_metadata(file_path: str) -> Dict[str, Any]:
+    """
+    Extract metadata from an image file including GPS coordinates
+    
+    Args:
+        file_path: Path to the image file
+        
+    Returns:
+        Dictionary with metadata including GPS coordinates
+    """
+    metadata = {
+        'gps_latitude': None,
+        'gps_longitude': None,
+        'date_created': None,
+        'width': None,
+        'height': None,
+        'format': None,
+        'camera_make': None,
+        'camera_model': None
+    }
+    
+    try:
+        with Image.open(file_path) as img:
+            # Basic info
+            metadata['width'] = img.width
+            metadata['height'] = img.height
+            metadata['format'] = img.format
+            
+            # EXIF data
+            if hasattr(img, '_getexif') and img._getexif():
+                exif = img._getexif()
+                
+                # Create reverse mapping of tag IDs to names
+                exif_data = {}
+                for tag_id, value in exif.items():
+                    tag = TAGS.get(tag_id, tag_id)
+                    exif_data[tag] = value
+                
+                # Extract camera info
+                metadata['camera_make'] = exif_data.get('Make')
+                metadata['camera_model'] = exif_data.get('Model')
+                
+                # Extract date
+                date_str = exif_data.get('DateTimeOriginal') or exif_data.get('DateTime')
+                if date_str:
+                    try:
+                        # EXIF dates are in format "YYYY:MM:DD HH:MM:SS"
+                        metadata['date_created'] = datetime.strptime(date_str, '%Y:%m:%d %H:%M:%S').isoformat()
+                    except ValueError:
+                        pass
+                
+                # Extract GPS information
+                gps_info = exif_data.get('GPSInfo')
+                if gps_info:
+                    # GPS tags: 1=lat_ref, 2=latitude, 3=lon_ref, 4=longitude
+                    lat_ref = gps_info.get(1)  # 'N' or 'S'
+                    lat = gps_info.get(2)      # tuple of (deg, min, sec)
+                    lon_ref = gps_info.get(3)  # 'E' or 'W'
+                    lon = gps_info.get(4)      # tuple of (deg, min, sec)
+                    
+                    if lat and lat_ref:
+                        metadata['gps_latitude'] = convert_gps_coordinate(lat, lat_ref)
+                    if lon and lon_ref:
+                        metadata['gps_longitude'] = convert_gps_coordinate(lon, lon_ref)
+                        
+    except Exception as e:
+        print(f"Warning: Could not extract metadata from {file_path}: {e}")
+    
+    return metadata
+
+
 def load_images_from_db(db: ImageDatabase, 
                         skip_captions: bool = True) -> List[Dict]:
     """Load images from database that need captions"""
@@ -349,7 +448,9 @@ def save_to_csv(results: List[Dict], output_file: str):
         return
     
     fieldnames = ['file_path', 'file_name', 'sha256', 'caption', 'embedding', 
-                  'processed_at', 'processed', 'error']
+                  'processed_at', 'processed', 'error',
+                  'gps_latitude', 'gps_longitude', 'date_created',
+                  'width', 'height', 'format', 'camera_make', 'camera_model']
     
     with open(output_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -374,27 +475,59 @@ def update_database(db: ImageDatabase, results: List[Dict]):
             continue
         
         try:
+            # Get file modification time for date_modified
+            from datetime import datetime as dt
+            try:
+                date_modified = dt.fromtimestamp(os.path.getmtime(result['file_path']))
+            except:
+                date_modified = dt.now()
+            
+            # Calculate SHA256 if not provided
+            sha256 = result.get('sha256')
+            if not sha256:
+                sha256 = hashlib.sha256(open(result['file_path'], 'rb').read()).hexdigest()
+            
+            # Calculate perceptual hash
+            phash = ""
+            try:
+                from PIL import Image as PILImage
+                import imagehash
+                with PILImage.open(result['file_path']) as img:
+                    phash = str(imagehash.phash(img))
+            except:
+                pass
+            
+            # Get file size
+            try:
+                file_size = os.path.getsize(result['file_path'])
+            except:
+                file_size = 0
+            
+            # Parse date_created string to datetime if needed
+            date_created = result.get('date_created')
+            if isinstance(date_created, str):
+                try:
+                    date_created = dt.fromisoformat(date_created)
+                except:
+                    date_created = None
+            
             # Create metadata object
             metadata = ImageMetadata(
                 file_path=result['file_path'],
                 file_name=result['file_name'],
-                sha256=result.get('sha256'),
+                file_size=file_size,
+                sha256=sha256,
+                perceptual_hash=phash,
                 caption=result.get('caption'),
                 caption_embedding=result.get('embedding'),
-                date_created=result.get('date_created'),
-                date_modified=result.get('date_modified'),
-                width=result.get('width'),
-                height=result.get('height'),
-                format=result.get('format'),
+                date_created=date_created,
+                date_modified=date_modified,
+                width=result.get('width', 0) or 0,
+                height=result.get('height', 0) or 0,
+                format=result.get('format', 'UNKNOWN') or 'UNKNOWN',
                 gps_latitude=result.get('gps_latitude'),
                 gps_longitude=result.get('gps_longitude'),
-                camera_make=result.get('camera_make'),
-                camera_model=result.get('camera_model'),
-                exposure_time=result.get('exposure_time'),
-                f_number=result.get('f_number'),
-                iso_speed=result.get('iso_speed'),
-                focal_length=result.get('focal_length'),
-                tags=result.get('tags')
+                tags=None
             )
             
             db.insert_image(metadata)
@@ -543,19 +676,34 @@ Examples:
         if args.limit > 0:
             images_to_process = images_to_process[:args.limit]
         
-        # Convert to dict format
-        images_to_process = [
-            {
-                'file_path': str(img),
+        # Convert to dict format and extract metadata including GPS
+        images_to_process_dicts = []
+        print("Extracting metadata (including GPS coordinates) from images...")
+        for i, img in enumerate(images_to_process):
+            if i % 10 == 0:
+                print(f"  Processing {i}/{len(images_to_process)} images...")
+            file_path = str(img)
+            metadata = extract_image_metadata(file_path)
+            images_to_process_dicts.append({
+                'file_path': file_path,
                 'file_name': img.name,
                 'sha256': None,  # Will be computed if needed
                 'caption': None,
-                'caption_embedding': None
-            }
-            for img in images_to_process
-        ]
+                'caption_embedding': None,
+                'gps_latitude': metadata.get('gps_latitude'),
+                'gps_longitude': metadata.get('gps_longitude'),
+                'date_created': metadata.get('date_created'),
+                'width': metadata.get('width'),
+                'height': metadata.get('height'),
+                'format': metadata.get('format'),
+                'camera_make': metadata.get('camera_make'),
+                'camera_model': metadata.get('camera_model')
+            })
+        images_to_process = images_to_process_dicts
         
-        print(f"Found {len(images_to_process)} images to process\n")
+        # Count images with GPS data
+        gps_count = sum(1 for img in images_to_process if img.get('gps_latitude') and img.get('gps_longitude'))
+        print(f"Found {len(images_to_process)} images to process ({gps_count} with GPS data)\n")
     
     elif args.from_db:
         # Process from database
@@ -614,7 +762,16 @@ Examples:
                     'embedding': embedding,
                     'processed_at': datetime.now().isoformat(),
                     'processed': success,
-                    'error': None if success else 'Failed to generate caption'
+                    'error': None if success else 'Failed to generate caption',
+                    # Include GPS and other metadata
+                    'gps_latitude': img.get('gps_latitude'),
+                    'gps_longitude': img.get('gps_longitude'),
+                    'date_created': img.get('date_created'),
+                    'width': img.get('width'),
+                    'height': img.get('height'),
+                    'format': img.get('format'),
+                    'camera_make': img.get('camera_make'),
+                    'camera_model': img.get('camera_model')
                 }
                 
                 results.append(result)
