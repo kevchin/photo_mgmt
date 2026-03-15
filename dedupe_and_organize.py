@@ -86,10 +86,12 @@ def get_destination_path(date: datetime, filename: str, destination: Path, exist
     dest_dir = destination / year / month / day
     dest_dir.mkdir(parents=True, exist_ok=True)
     
-    base_name = filename.stem
-    extension = filename.suffix.lower()
+    # filename is already a string, so convert to Path for .stem and .suffix
+    filename_path = Path(filename)
+    base_name = filename_path.stem
+    extension = filename_path.suffix.lower()
     
-    dest_path = dest_dir / filename.name
+    dest_path = dest_dir / filename
     
     # Handle filename collisions
     counter = 1
