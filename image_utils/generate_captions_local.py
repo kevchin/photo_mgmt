@@ -349,7 +349,7 @@ def save_to_csv(results: List[Dict], output_file: str):
         return
     
     fieldnames = ['file_path', 'file_name', 'sha256', 'caption', 'embedding', 
-                  'processed_at', 'error']
+                  'processed_at', 'processed', 'error']
     
     with open(output_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -611,7 +611,7 @@ Examples:
                     'file_name': img['file_name'],
                     'sha256': img.get('sha256'),
                     'caption': caption,
-                    'caption_embedding': embedding,
+                    'embedding': embedding,
                     'processed_at': datetime.now().isoformat(),
                     'processed': success,
                     'error': None if success else 'Failed to generate caption'
