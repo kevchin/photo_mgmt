@@ -557,6 +557,13 @@ def update_database(db: ImageDatabase, results: List[Dict]):
             img_id = db.insert_image(metadata)
             success_count += 1
             
+            # Print confirmation for each successful commit
+            if result.get('was_skipped'):
+                print(f"  ✓ Updated existing record: {result['file_name']} (ID: {img_id})")
+            else:
+                print(f"  ✓ Saved new caption to database: {result['file_name']} (ID: {img_id})")
+                print(f"    Caption: {result.get('caption')[:80]}...")
+            
             # Debug output every 10 records
             if success_count % 10 == 0:
                 print(f"  Updated {success_count} records so far... (latest: {result['file_name']})")
