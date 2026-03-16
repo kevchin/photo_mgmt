@@ -1,1 +1,1 @@
-Nothing should be ignored since only a Python source file (`dedupe_and_organize.py`) was modified and there are no build artifacts, dependencies, or temporary files in the changes.
+Nothing should be ignored in this case, as only a README.md file was added and there are no build artifacts, dependencies, or temporary files in the changes.
