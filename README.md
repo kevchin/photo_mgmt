@@ -38,6 +38,8 @@ Then restart PostgreSQL: `sudo systemctl restart postgresql`
 |------|-------------|
 | `image_dedup.py` | Find duplicate and similar images using checksums and perceptual hashing |
 | `image_organizer.py` | Organize photos into YEAR/MONTH/DAY structure with metadata extraction |
+| `ingest_images.py` | **NEW**: Ingest images from directory or SQLite into PostgreSQL with pgvector |
+| `generate_captions.py` | Generate AI captions and embeddings using OpenAI API for semantic search |
 | `generate_captions_local.py` | Generate AI captions and embeddings offline using Florence-2 |
 | `image_database.py` | Manage PostgreSQL database with pgvector for semantic search |
 
@@ -61,16 +63,70 @@ python image_dedup.py compare \
 python image_organizer.py organize \
     --source /path/to/photos \
     --dest /path/to/archive \
-    --postgres-db "$DATABASE_URL"
+    --save-db images.db  # Optional: create SQLite database
 ```
 
-### Generate AI Captions (Offline)
+### Ingest into PostgreSQL (NEW)
+
+**If you already have an organized directory**, skip `image_organizer.py` and ingest directly:
+
 ```bash
-python generate_captions_local.py \
-    --from-db \
-    --db "$DATABASE_URL" \
-    --model microsoft/Florence-2-base
+# From organized directory (no SQLite needed)
+python ingest_images.py \
+    --source-dir /path/to/organized/photos \
+    --postgres-db "$DATABASE_URL"
+
+# With local AI caption generation (Florence-2, runs offline)
+python ingest_images.py \
+    --source-dir /path/to/organized/photos \
+    --postgres-db "$DATABASE_URL" \
+    --local-captions
 ```
+
+**If you used image_organizer.py with --save-db**:
+
+```bash
+# From SQLite database (created by image_organizer.py)
+python ingest_images.py \
+    --sqlite-db images.db \
+    --postgres-db "$DATABASE_URL"
+
+# With local AI caption generation
+python ingest_images.py \
+    --sqlite-db images.db \
+    --postgres-db "$DATABASE_URL" \
+    --local-captions
+```
+
+After ingestion with `--local-captions`, follow the on-screen instructions to run `generate_captions_local.py` which will:
+1. Generate captions using Florence-2 (completely offline, no API key needed)
+2. Create vector embeddings for semantic search
+3. Update your PostgreSQL database automatically
+
+### Generate AI Captions (Offline with Local LLM)
+
+```bash
+# Generate captions and embeddings for all images in PostgreSQL
+python generate_captions_local.py \
+    --db "$DATABASE_URL" \
+    --from-db \
+    --model microsoft/Florence-2-base \
+    --embedding-model all-MiniLM-L6-v2
+
+# Use a more detailed model (slower but better quality)
+python generate_captions_local.py \
+    --db "$DATABASE_URL" \
+    --from-db \
+    --model microsoft/Florence-2-large
+
+# Only generate embeddings for existing captions
+python generate_captions_local.py \
+    --db "$DATABASE_URL" \
+    --from-db \
+    --embeddings-only
+```
+
+**Note**: The first run will download the Florence-2 model (~2GB). Subsequent runs are cached locally.
 
 ### Search Photos
 ```bash
@@ -97,8 +153,14 @@ For detailed documentation, examples, and troubleshooting, see:
 
 - Python 3.8+
 - PostgreSQL 14+ with pgvector (optional, for database features)
-- 8GB+ RAM recommended for caption generation
-- GPU optional but speeds up AI processing
+- **For local AI caption generation** (`generate_captions_local.py`):
+  - `pip install torch transformers pillow sentence-transformers psycopg2-binary`
+  - 8GB+ RAM recommended
+  - GPU optional but speeds up processing (CUDA or Apple MPS)
+  - First run downloads Florence-2 model (~2GB), then cached locally
+- **For OpenAI-based captions** (`generate_captions.py`):
+  - OpenAI API key
+  - `pip install openai pillow psycopg2-binary`
 
 ## License
 
