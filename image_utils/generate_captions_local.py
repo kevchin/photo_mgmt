@@ -470,8 +470,105 @@ def save_to_csv(results: List[Dict], output_file: str):
     print(f"Results saved to: {output_file}")
 
 
+def update_database_for_image(db: ImageDatabase, result: Dict) -> Tuple[bool, Optional[int]]:
+    """Update database with caption and embedding for a single image
+    
+    Args:
+        db: ImageDatabase instance
+        result: Dictionary with image processing results
+        
+    Returns:
+        (success, image_id) - success boolean and the database ID if successful
+    """
+    # Check for processing errors
+    if result.get('error'):
+        print(f"  Skipping {result['file_name']}: processing failed - {result.get('error')}")
+        return False, None
+    
+    if not result.get('processed'):
+        print(f"  Skipping {result['file_name']}: not processed")
+        return False, None
+    
+    if not result.get('caption'):
+        print(f"  Skipping {result['file_name']}: no caption generated")
+        return False, None
+    
+    try:
+        # Get file modification time for date_modified
+        from datetime import datetime as dt
+        try:
+            date_modified = dt.fromtimestamp(os.path.getmtime(result['file_path']))
+        except:
+            date_modified = dt.now()
+        
+        # Calculate SHA256 if not provided
+        sha256 = result.get('sha256')
+        if not sha256:
+            sha256 = hashlib.sha256(open(result['file_path'], 'rb').read()).hexdigest()
+        
+        # Calculate perceptual hash
+        phash = ""
+        try:
+            from PIL import Image as PILImage
+            import imagehash
+            with PILImage.open(result['file_path']) as img:
+                phash = str(imagehash.phash(img))
+        except:
+            pass
+        
+        # Get file size
+        try:
+            file_size = os.path.getsize(result['file_path'])
+        except:
+            file_size = 0
+        
+        # Parse date_created string to datetime if needed
+        date_created = result.get('date_created')
+        if isinstance(date_created, str):
+            try:
+                date_created = dt.fromisoformat(date_created)
+            except:
+                date_created = None
+        
+        # Create metadata object
+        metadata = ImageMetadata(
+            file_path=result['file_path'],
+            file_name=result['file_name'],
+            file_size=file_size,
+            sha256=sha256,
+            perceptual_hash=phash,
+            caption=result.get('caption'),
+            caption_embedding=result.get('embedding'),
+            date_created=date_created,
+            date_modified=date_modified,
+            width=result.get('width', 0) or 0,
+            height=result.get('height', 0) or 0,
+            format=result.get('format', 'UNKNOWN') or 'UNKNOWN',
+            gps_latitude=result.get('gps_latitude'),
+            gps_longitude=result.get('gps_longitude'),
+            tags=None
+        )
+        
+        img_id = db.insert_image(metadata)
+        
+        # Print confirmation
+        if result.get('was_skipped'):
+            print(f"  ✓ Updated existing record: {result['file_name']} (ID: {img_id})")
+        else:
+            print(f"  ✓ Saved new caption to database: {result['file_name']} (ID: {img_id})")
+            print(f"    Caption: {result.get('caption')[:80]}...")
+        
+        return True, img_id
+        
+    except Exception as e:
+        print(f"Error updating database for {result['file_name']}: {e}")
+        import traceback
+        traceback.print_exc()
+        return False, None
+
+
 def update_database(db: ImageDatabase, results: List[Dict]):
-    """Update database with captions and embeddings"""
+    """Update database with captions and embeddings (batch mode)"""
     success_count = 0
     skipped_already_done = 0
     skipped_errors = 0
@@ -498,80 +595,10 @@ def update_database(db: ImageDatabase, results: List[Dict]):
             # Still update the database to ensure embedding is saved
             print(f"  Updating existing record for {result['file_name']}...")
         
-        try:
-            # Get file modification time for date_modified
-            from datetime import datetime as dt
-            try:
-                date_modified = dt.fromtimestamp(os.path.getmtime(result['file_path']))
-            except:
-                date_modified = dt.now()
-            
-            # Calculate SHA256 if not provided
-            sha256 = result.get('sha256')
-            if not sha256:
-                sha256 = hashlib.sha256(open(result['file_path'], 'rb').read()).hexdigest()
-            
-            # Calculate perceptual hash
-            phash = ""
-            try:
-                from PIL import Image as PILImage
-                import imagehash
-                with PILImage.open(result['file_path']) as img:
-                    phash = str(imagehash.phash(img))
-            except:
-                pass
-            
-            # Get file size
-            try:
-                file_size = os.path.getsize(result['file_path'])
-            except:
-                file_size = 0
-            
-            # Parse date_created string to datetime if needed
-            date_created = result.get('date_created')
-            if isinstance(date_created, str):
-                try:
-                    date_created = dt.fromisoformat(date_created)
-                except:
-                    date_created = None
-            
-            # Create metadata object
-            metadata = ImageMetadata(
-                file_path=result['file_path'],
-                file_name=result['file_name'],
-                file_size=file_size,
-                sha256=sha256,
-                perceptual_hash=phash,
-                caption=result.get('caption'),
-                caption_embedding=result.get('embedding'),
-                date_created=date_created,
-                date_modified=date_modified,
-                width=result.get('width', 0) or 0,
-                height=result.get('height', 0) or 0,
-                format=result.get('format', 'UNKNOWN') or 'UNKNOWN',
-                gps_latitude=result.get('gps_latitude'),
-                gps_longitude=result.get('gps_longitude'),
-                tags=None
-            )
-            
-            img_id = db.insert_image(metadata)
+        success, img_id = update_database_for_image(db, result)
+        if success:
             success_count += 1
-            
-            # Print confirmation for each successful commit
-            if result.get('was_skipped'):
-                print(f"  ✓ Updated existing record: {result['file_name']} (ID: {img_id})")
-            else:
-                print(f"  ✓ Saved new caption to database: {result['file_name']} (ID: {img_id})")
-                print(f"    Caption: {result.get('caption')[:80]}...")
-            
-            # Debug output every 10 records
-            if success_count % 10 == 0:
-                print(f"  Updated {success_count} records so far... (latest: {result['file_name']})")
-            
-        except Exception as e:
-            print(f"Error updating database for {result['file_name']}: {e}")
-            import traceback
-            traceback.print_exc()
+        else:
             skipped_errors += 1
     
     print(f"\nDatabase update complete:")
@@ -774,6 +801,14 @@ Examples:
     results = []
     success_count = 0
     error_count = 0
+    db_success_count = 0
+    db_error_count = 0
+    
+    # Initialize database connection if needed (for per-image updates)
+    db = None
+    if args.db and DB_AVAILABLE:
+        print("Connecting to database for per-image updates...")
+        db = ImageDatabase(args.db)
     
     # For GPU, use single worker to avoid OOM issues
     workers = 1 if args.device in ['cuda', 'mps'] else args.workers
@@ -820,8 +855,17 @@ Examples:
                 
                 if success:
                     success_count += 1
+                    
+                    # Write to database immediately after successful processing
+                    if db is not None:
+                        db_success, img_id = update_database_for_image(db, result)
+                        if db_success:
+                            db_success_count += 1
+                        else:
+                            db_error_count += 1
                 else:
                     error_count += 1
+                    print(f"  ✗ Failed to process {img['file_name']}")
                     
             except Exception as e:
                 print(f"Error processing {img['file_path']}: {e}")
@@ -837,8 +881,15 @@ Examples:
             
             # Progress indicator
             if i % 5 == 0 or i == len(images_to_process):
-                print(f"Progress: {i}/{len(images_to_process)} "
-                      f"(success: {success_count}, errors: {error_count})")
+                progress_msg = f"Progress: {i}/{len(images_to_process)} " \
+                              f"(success: {success_count}, errors: {error_count})"
+                if db is not None:
+                    progress_msg += f" [DB writes: {db_success_count} ok, {db_error_count} failed]"
+                print(progress_msg)
+    
+    # Close database connection if we opened it
+    if db is not None:
+        db.close()
     
     # Save results
     print(f"\n=== Processing Complete ===")
@@ -848,10 +899,11 @@ Examples:
     if args.output:
         save_to_csv(results, args.output)
     elif args.db and DB_AVAILABLE:
-        print("\nUpdating database...")
-        db = ImageDatabase(args.db)
-        update_database(db, results)
-        db.close()
+        # Database writes already happened per-image during processing
+        # Just show summary stats
+        print(f"\nDatabase updates completed during processing:")
+        print(f"  Successful writes: {db_success_count}")
+        print(f"  Failed writes: {db_error_count}")
         
         # Show stats
         stats = db.get_statistics()
