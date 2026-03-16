@@ -780,7 +780,9 @@ Examples:
             sys.exit(1)
         
         print(f"\nConnecting to database...")
-        db = ImageDatabase(args.db)
+        # Get embedding dimensions from the embedding generator if available
+        emb_dims = embed_gen.dimensions if embed_gen else 1536
+        db = ImageDatabase(args.db, embedding_dimensions=emb_dims)
         
         images_to_process = load_images_from_db(db, skip_captions=args.skip_existing)
         
@@ -808,7 +810,8 @@ Examples:
     db = None
     if args.db and DB_AVAILABLE:
         print("Connecting to database for per-image updates...")
-        db = ImageDatabase(args.db)
+        emb_dims = embed_gen.dimensions if embed_gen else 1536
+        db = ImageDatabase(args.db, embedding_dimensions=emb_dims)
     
     # For GPU, use single worker to avoid OOM issues
     workers = 1 if args.device in ['cuda', 'mps'] else args.workers

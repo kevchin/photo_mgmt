@@ -67,15 +67,17 @@ class ImageMetadata:
 class ImageDatabase:
     """PostgreSQL database with pgvector support for image metadata and semantic search"""
     
-    def __init__(self, connection_string: str):
+    def __init__(self, connection_string: str, embedding_dimensions: int = 1536):
         """
         Initialize database connection
         
         Args:
             connection_string: PostgreSQL connection string
                 e.g., "postgresql://user:password@localhost:5432/dbname"
+            embedding_dimensions: Dimension size for caption embeddings (default: 1536)
         """
         self.conn_string = connection_string
+        self.embedding_dimensions = embedding_dimensions
         self.pool = SimpleConnectionPool(1, 10, connection_string)
         self._initialize_schema()
     
@@ -95,8 +97,41 @@ class ImageDatabase:
                 # Enable pgvector extension
                 cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
                 
-                # Create images table
+                # Check if images table already exists and get its embedding dimension
                 cur.execute("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_name = 'images'
+                    )
+                """)
+                table_exists = cur.fetchone()[0]
+                
+                if table_exists:
+                    # Get the existing vector dimension
+                    cur.execute("""
+                        SELECT atttypmod 
+                        FROM pg_attribute 
+                        WHERE attrelid = 'images'::regclass 
+                        AND attname = 'caption_embedding'
+                    """)
+                    result = cur.fetchone()
+                    if result and result[0] > 0:
+                        existing_dims = result[0]
+                        if existing_dims != self.embedding_dimensions:
+                            print(f"Warning: Existing database has {existing_dims}-dimensional embeddings, "
+                                  f"but model produces {self.embedding_dimensions} dimensions.")
+                            print(f"Using existing database dimension: {existing_dims}")
+                            self.embedding_dimensions = existing_dims
+                        else:
+                            print(f"Database schema verified ({self.embedding_dimensions} dimensions)")
+                    else:
+                        print(f"Using configured embedding dimension: {self.embedding_dimensions}")
+                    # Table already exists, no need to recreate
+                    conn.commit()
+                    return
+                
+                # Create images table with dynamic embedding dimensions
+                cur.execute(f"""
                     CREATE TABLE IF NOT EXISTS images (
                         id SERIAL PRIMARY KEY,
                         file_path TEXT UNIQUE NOT NULL,
@@ -112,7 +147,7 @@ class ImageDatabase:
                         gps_latitude DOUBLE PRECISION,
                         gps_longitude DOUBLE PRECISION,
                         caption TEXT,
-                        caption_embedding vector(1536),
+                        caption_embedding vector({self.embedding_dimensions}),
                         tags TEXT[],
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -475,7 +510,8 @@ Examples:
         parser.print_help()
         sys.exit(1)
     
-    db = ImageDatabase(args.db)
+    # Initialize database with default embedding dimensions
+    db = ImageDatabase(args.db, embedding_dimensions=1536)
     
     try:
         if args.command == 'init':

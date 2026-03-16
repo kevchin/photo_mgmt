@@ -265,9 +265,9 @@ Examples:
     
     args = parser.parse_args()
     
-    # Initialize database
+    # Initialize database with default embedding dimensions (1536 for OpenAI embeddings)
     print(f"Connecting to database...")
-    db = ImageDatabase(args.db)
+    db = ImageDatabase(args.db, embedding_dimensions=1536)
     
     # Get images to process
     if args.embeddings_only:
