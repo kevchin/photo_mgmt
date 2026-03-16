@@ -195,6 +195,46 @@ class ImageDatabase:
                 conn.commit()
                 print("Database schema initialized successfully")
     
+    def reset_embeddings_column(self, new_dimensions: int):
+        """Drop and recreate the caption_embedding column with new dimensions
+        
+        WARNING: This will delete all existing caption embeddings!
+        
+        Args:
+            new_dimensions: New embedding dimension size
+        """
+        print(f"Resetting caption embeddings to {new_dimensions} dimensions...")
+        print("WARNING: This will delete all existing caption embeddings!")
+        
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                # Drop the old column and index
+                cur.execute("""
+                    ALTER TABLE images DROP COLUMN IF EXISTS caption_embedding CASCADE
+                """)
+                
+                # Add new column with correct dimensions
+                cur.execute(f"""
+                    ALTER TABLE images ADD COLUMN caption_embedding vector({new_dimensions})
+                """)
+                
+                # Recreate the index
+                try:
+                    cur.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_images_caption_embedding 
+                        ON images USING hnsw(caption_embedding vector_cosine_ops)
+                    """)
+                except psycopg2.Error:
+                    cur.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_images_caption_embedding 
+                        ON images USING ivfflat(caption_embedding vector_cosine_ops)
+                        WITH (lists = 100)
+                    """)
+                
+                conn.commit()
+                print(f"Successfully reset caption embeddings to {new_dimensions} dimensions")
+                print("Note: All caption embeddings have been cleared. Re-run caption generation to populate them.")
+    
     def image_exists(self, sha256: str) -> bool:
         """Check if an image with the given SHA256 hash exists"""
         with self.get_connection() as conn:
@@ -504,6 +544,15 @@ Examples:
     search_meta_parser.add_argument('--limit', type=int, default=100, 
                                     help='Number of results (default: 100)')
     
+    # Reset embeddings command
+    reset_parser = subparsers.add_parser('reset-embeddings', 
+                                          help='Reset caption embeddings column to new dimensions')
+    reset_parser.add_argument('--db', required=True, help='PostgreSQL connection string')
+    reset_parser.add_argument('--dimensions', type=int, default=384,
+                             help='New embedding dimensions (default: 384 for MiniLM, 1536 for OpenAI)')
+    reset_parser.add_argument('--force', action='store_true',
+                             help='Skip confirmation prompt')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -518,6 +567,17 @@ Examples:
             print("Database already initialized (schema creation is idempotent)")
             stats = db.get_statistics()
             print(f"Total images: {stats['total_images']}")
+        
+        elif args.command == 'reset-embeddings':
+            if not args.force:
+                confirm = input(f"\nAre you sure you want to reset embeddings to {args.dimensions} dimensions? This will DELETE all existing caption embeddings. Type 'yes' to confirm: ")
+                if confirm.lower() != 'yes':
+                    print("Operation cancelled.")
+                    sys.exit(0)
+            
+            db.reset_embeddings_column(args.dimensions)
+            print("\nTo regenerate embeddings, run:")
+            print(f"  python generate_captions_local.py --db \"{args.db}\" --from-db --model microsoft/Florence-2-base --embedding-model all-MiniLM-L6-v2")
         
         elif args.command == 'stats':
             stats = db.get_statistics()

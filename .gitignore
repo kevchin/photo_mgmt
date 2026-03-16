@@ -1,4 +1,37 @@
 ```
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+venv/
+.venv/
+.env
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Coverage
+.coverage
+coverage/
+htmlcov/
+
+# Testing
+.pytest_cache/
+.mypy_cache/
 ```
