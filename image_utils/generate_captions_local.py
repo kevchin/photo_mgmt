@@ -403,12 +403,14 @@ def process_image_local(img_record: Dict,
                         caption_gen: Optional[FlorenceCaptionGenerator],
                         embed_gen: Optional[EmbeddingGenerator],
                         task: str = "<DETAILED_CAPTION>",
-                        regenerate: bool = False) -> Tuple[bool, Optional[str], Optional[List[float]]]:
+                        regenerate: bool = False) -> Tuple[bool, Optional[str], Optional[List[float]], bool]:
     """
     Process a single image locally
     
     Returns:
-        (success, caption, embedding)
+        (success, caption, embedding, was_skipped)
+        - was_skipped=True means image already had caption and was skipped (still valid)
+        - was_skipped=False means image was newly processed
     """
     file_path = img_record['file_path']
     
@@ -419,8 +421,10 @@ def process_image_local(img_record: Dict,
         if img_record.get('caption_embedding') is None and embed_gen:
             embedding = embed_gen.generate_embedding(existing_caption)
             if embedding:
-                return True, existing_caption, embedding
-        return False, existing_caption, None
+                # Return with was_skipped=True to indicate it's already done but valid
+                return True, existing_caption, embedding, True
+        # Already has caption and embedding, skip
+        return True, existing_caption, None, True
     
     # Generate caption
     caption = None
@@ -428,7 +432,7 @@ def process_image_local(img_record: Dict,
         print(f"  Generating caption for: {file_path}")
         caption = caption_gen.generate_caption(file_path, task=task)
         if not caption:
-            return False, None, None
+            return False, None, None, False
         print(f"    Caption: {caption[:80]}...")
     
     # Generate embedding
@@ -438,7 +442,7 @@ def process_image_local(img_record: Dict,
         if not embedding:
             print(f"    Warning: Failed to generate embedding")
     
-    return True, caption, embedding
+    return True, caption, embedding, False
 
 
 def save_to_csv(results: List[Dict], output_file: str):
@@ -469,10 +473,30 @@ def save_to_csv(results: List[Dict], output_file: str):
 def update_database(db: ImageDatabase, results: List[Dict]):
     """Update database with captions and embeddings"""
     success_count = 0
+    skipped_already_done = 0
+    skipped_errors = 0
     
-    for result in results:
-        if not result.get('processed') or result.get('error'):
+    for i, result in enumerate(results):
+        # Check for processing errors
+        if result.get('error'):
+            print(f"  Skipping {result['file_name']}: processing failed - {result.get('error')}")
+            skipped_errors += 1
             continue
+        
+        if not result.get('processed'):
+            print(f"  Skipping {result['file_name']}: not processed")
+            skipped_errors += 1
+            continue
+        
+        if not result.get('caption'):
+            print(f"  Skipping {result['file_name']}: no caption generated")
+            skipped_errors += 1
+            continue
+        
+        # Check if this was already done (had existing caption)
+        if result.get('was_skipped'):
+            # Still update the database to ensure embedding is saved
+            print(f"  Updating existing record for {result['file_name']}...")
         
         try:
             # Get file modification time for date_modified
@@ -530,13 +554,23 @@ def update_database(db: ImageDatabase, results: List[Dict]):
                 tags=None
             )
             
-            db.insert_image(metadata)
+            img_id = db.insert_image(metadata)
             success_count += 1
+            
+            # Debug output every 10 records
+            if success_count % 10 == 0:
+                print(f"  Updated {success_count} records so far... (latest: {result['file_name']})")
             
         except Exception as e:
             print(f"Error updating database for {result['file_name']}: {e}")
+            import traceback
+            traceback.print_exc()
+            skipped_errors += 1
     
-    print(f"Updated {success_count} records in database")
+    print(f"\nDatabase update complete:")
+    print(f"  Successfully updated: {success_count} records")
+    print(f"  Skipped due to errors: {skipped_errors} records")
+    print(f"  Already processed (re-saved): {skipped_already_done} records")
 
 
 def main():
@@ -752,7 +786,7 @@ Examples:
         for i, future in enumerate(as_completed(futures), 1):
             img = futures[future]
             try:
-                success, caption, embedding = future.result()
+                success, caption, embedding, was_skipped = future.result()
                 
                 result = {
                     'file_path': img['file_path'],
@@ -762,6 +796,7 @@ Examples:
                     'embedding': embedding,
                     'processed_at': datetime.now().isoformat(),
                     'processed': success,
+                    'was_skipped': was_skipped,  # True if already had caption
                     'error': None if success else 'Failed to generate caption',
                     # Include GPS and other metadata
                     'gps_latitude': img.get('gps_latitude'),
