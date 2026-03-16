@@ -5,18 +5,17 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Dependencies
-.venv/
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
 venv/
-env/
+.venv/
 .env
 .env.local
-.env.*
-
-# Build artifacts
-dist/
-build/
-*.egg-info/
+*.env.*
 
 # Editors
 .vscode/
@@ -32,11 +31,7 @@ build/
 coverage/
 htmlcov/
 
-# Temp files
-*.tmp
-*.temp
-
-# OS
-.DS_Store
-Thumbs.db
+# Testing
+.pytest_cache/
+.mypy_cache/
 ```

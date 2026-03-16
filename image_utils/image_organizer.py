@@ -233,12 +233,12 @@ def main():
     if args.command == 'organize':
         org = organize_by_date(Path(args.source), Path(args.dest), args.move, args.dry_run)
         if args.save_db and not args.dry_run:
-            db = ImageDatabase(Path(args.save_db)); cnt = db.add_images(org); print(f"Added {cnt} images"); db.close()
+            db = ImageDatabase(Path(args.save_db), embedding_dimensions=1536); cnt = db.add_images(org); print(f"Added {cnt} images"); db.close()
         # Also save to PostgreSQL if provided
         if args.postgres_db and not args.dry_run:
             try:
                 from image_database import ImageDatabase as PostgresDB, ImageMetadata
-                pgdb = PostgresDB(args.postgres_db)
+                pgdb = PostgresDB(args.postgres_db, embedding_dimensions=1536)
                 metadata_list = []
                 for img in org:
                     # Convert OrganizedImageInfo to ImageMetadata
@@ -291,12 +291,12 @@ def main():
                     parsed_date=m['parsed_date'],year=m['year'],month=m['month'],day=m['day'],gps_latitude=m['gps_latitude'],
                     gps_longitude=m['gps_longitude'],camera_make=m['camera_make'],camera_model=m['camera_model'],caption=None,tags=[]))
             except Exception as e: print(f"Error indexing {fp}: {e}")
-        db = ImageDatabase(dbp); cnt = db.add_images(organized); st = db.get_stats()
+        db = ImageDatabase(dbp, embedding_dimensions=1536); cnt = db.add_images(organized); st = db.get_stats()
         print(f"\nIndexing complete! Added {cnt} images, Year range: {st['year_range']}"); db.close()
     elif args.command == 'search':
         dbp = Path(args.db)
         if not dbp.exists(): print(f"Error: {dbp} does not exist"); sys.exit(1)
-        db = ImageDatabase(dbp); results = db.search(args.query)
+        db = ImageDatabase(dbp, embedding_dimensions=1536); results = db.search(args.query)
         print(f"\nSearch: '{args.query}' ({len(results)} found)\n")
         for i, img in enumerate(results[:args.limit], 1):
             print(f"{i}. {img['file_path']}")
@@ -309,7 +309,7 @@ def main():
     elif args.command == 'stats':
         dbp = Path(args.db)
         if not dbp.exists(): print(f"Error: {dbp} does not exist"); sys.exit(1)
-        db = ImageDatabase(dbp); st = db.get_stats()
+        db = ImageDatabase(dbp, embedding_dimensions=1536); st = db.get_stats()
         print("\n=== Database Statistics ==="); print(f"Total: {st['total_images']}, Unique: {st['unique_images']}")
         if st['year_range']: print(f"Year range: {st['year_range'][0]}-{st['year_range'][1]}"); db.close()
     else: p.print_help()

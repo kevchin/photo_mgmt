@@ -299,7 +299,7 @@ def process_images(images: List[Dict], postgres_conn: str,
     
     # Initialize PostgreSQL database
     if not dry_run:
-        db = ImageDatabase(postgres_conn)
+        db = ImageDatabase(postgres_conn, embedding_dimensions=1536)
     else:
         print("Dry run mode - no database operations will be performed")
         db = None
