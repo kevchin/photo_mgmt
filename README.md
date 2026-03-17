@@ -38,7 +38,8 @@ Then restart PostgreSQL: `sudo systemctl restart postgresql`
 |------|-------------|
 | `image_dedup.py` | Find duplicate and similar images using checksums and perceptual hashing |
 | `image_organizer.py` | Organize photos into YEAR/MONTH/DAY structure with metadata extraction |
-| `ingest_images.py` | **NEW**: Ingest images from directory or SQLite into PostgreSQL with pgvector |
+| `ingest_images.py` | Ingest images from directory or SQLite into PostgreSQL with pgvector |
+| `ingest_new_photos.py` | **NEW**: Ingest only NEW photos without reprocessing existing archive |
 | `generate_captions.py` | Generate AI captions and embeddings using OpenAI API for semantic search |
 | `generate_captions_local.py` | Generate AI captions and embeddings offline using Florence-2 |
 | `image_database.py` | Manage PostgreSQL database with pgvector for semantic search |
@@ -66,9 +67,11 @@ python image_organizer.py organize \
     --save-db images.db  # Optional: create SQLite database
 ```
 
-### Ingest into PostgreSQL (NEW)
+### Ingest into PostgreSQL
 
-**If you already have an organized directory**, skip `image_organizer.py` and ingest directly:
+**Option A: Ingest ALL photos from a directory (existing tool)**
+
+If you already have an organized directory, skip `image_organizer.py` and ingest directly:
 
 ```bash
 # From organized directory (no SQLite needed)
@@ -82,6 +85,50 @@ python ingest_images.py \
     --postgres-db "$DATABASE_URL" \
     --local-captions
 ```
+
+**Option B: Ingest ONLY NEW photos without reprocessing archive (NEW!)**
+
+This is the recommended workflow for adding new photos to an existing archive:
+
+```bash
+# Dry run to preview what would be added (RECOMMENDED FIRST)
+python ingest_new_photos.py \
+    --new-photos /path/to/new/photos \
+    --archive-dir /path/to/archive \
+    --db "$DATABASE_URL" \
+    --dry-run
+
+# Actually ingest new photos with local AI captions
+python ingest_new_photos.py \
+    --new-photos /path/to/new/photos \
+    --archive-dir /path/to/archive \
+    --db "$DATABASE_URL" \
+    --local-captions
+
+# Ingest with OpenAI captions
+python ingest_new_photos.py \
+    --new-photos /path/to/new/photos \
+    --archive-dir /path/to/archive \
+    --db "$DATABASE_URL" \
+    --openai-captions \
+    --api-key $OPENAI_API_KEY
+
+# Move originals instead of copying (deletes from source after ingestion)
+python ingest_new_photos.py \
+    --new-photos /path/to/new/photos \
+    --archive-dir /path/to/archive \
+    --db "$DATABASE_URL" \
+    --move
+```
+
+**Key Benefits of `ingest_new_photos.py`:**
+- ✅ Only scans the small folder of new photos (< 100 typically)
+- ✅ Checks each photo against database using SHA256 checksums
+- ✅ Skips duplicates automatically (no reprocessing of archive)
+- ✅ Copies unique photos to YYYY/MM/DD structure
+- ✅ Adds only new photos to database with metadata
+- ✅ Optional AI caption generation (local or OpenAI)
+- ✅ Safe dry-run mode to preview changes
 
 **If you used image_organizer.py with --save-db**:
 

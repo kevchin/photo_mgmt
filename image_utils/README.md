@@ -58,7 +58,34 @@ python image_dedup.py compare \
     --output comparison_report.txt
 ```
 
-### 3. Setup PostgreSQL Database
+### 3. Ingest NEW Photos Without Reprocessing Archive (RECOMMENDED!)
+
+For the common use case of adding new photos to an existing archive:
+
+```bash
+# First, do a dry run to see what would be added
+python ingest_new_photos.py \
+    --new-photos /path/to/new/photos \
+    --archive-dir /path/to/archive \
+    --db "postgresql://user:pass@localhost/image_archive" \
+    --dry-run
+
+# Then actually ingest with local AI captions
+python ingest_new_photos.py \
+    --new-photos /path/to/new/photos \
+    --archive-dir /path/to/archive \
+    --db "postgresql://user:pass@localhost/image_archive" \
+    --local-captions
+```
+
+**Benefits of `ingest_new_photos.py`:**
+- Only scans the small folder of new photos (not your entire archive)
+- Automatically skips duplicates using SHA256 checksums
+- Organizes photos into YYYY/MM/DD structure
+- Adds only new photos to the database
+- Optional AI caption generation (local Florence-2 or OpenAI)
+
+### 4. Setup PostgreSQL Database
 
 ```bash
 # Create database
@@ -119,6 +146,34 @@ python image_database.py search-caption \
 ## Workflow Example
 
 Here's a complete workflow for processing new photos:
+
+### Recommended Workflow: Using `ingest_new_photos.py` (Efficient!)
+
+```bash
+# Step 1: Dry run to preview what would be added (no changes made)
+python ingest_new_photos.py \
+    --new-photos ~/Downloads/NewPhotos \
+    --archive-dir ~/Pictures/Archive \
+    --db "$DATABASE_URL" \
+    --dry-run
+
+# Step 2: Actually ingest with local AI captions
+python ingest_new_photos.py \
+    --new-photos ~/Downloads/NewPhotos \
+    --archive-dir ~/Pictures/Archive \
+    --db "$DATABASE_URL" \
+    --local-captions
+
+# Step 3: Search for your photos
+python image_database.py search-caption \
+    --db "$DATABASE_URL" \
+    --query-text "beach sunset" \
+    --limit 20
+```
+
+### Alternative Workflow: Manual Steps
+
+If you prefer more control over each step:
 
 ```bash
 # Step 1: Compare new photos against your archive
