@@ -281,6 +281,7 @@ def process_single_image(path: Path, db: ImageDatabase,
         date_modified=datetime.fromtimestamp(path.stat().st_mtime),
         gps_latitude=file_meta['gps_latitude'],
         gps_longitude=file_meta['gps_longitude'],
+        is_black_and_white=is_bw,
         caption=caption,
         caption_embedding=None,
         tags=[]
