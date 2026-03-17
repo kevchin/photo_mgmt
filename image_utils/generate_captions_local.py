@@ -66,6 +66,14 @@ except ImportError:
     DB_AVAILABLE = False
     print("Warning: image_database module not found. Database operations disabled.")
 
+# Import orientation correction utility
+try:
+    from image_orientation import prepare_image_for_processing, cleanup_temp_image
+    ORIENTATION_AVAILABLE = True
+except ImportError:
+    ORIENTATION_AVAILABLE = False
+    print("Warning: image_orientation module not found. Auto-rotation disabled.")
+
 
 @dataclass
 class ImageRecord:
@@ -150,7 +158,8 @@ class FlorenceCaptionGenerator:
     
     def generate_caption(self, image_path: str, 
                         task: str = "<DETAILED_CAPTION>",
-                        max_tokens: int = 256) -> Optional[str]:
+                        max_tokens: int = 256,
+                        correct_orientation: bool = True) -> Optional[str]:
         """
         Generate a caption for an image
         
@@ -158,13 +167,25 @@ class FlorenceCaptionGenerator:
             image_path: Path to the image file
             task: Florence-2 task prompt (default: detailed caption)
             max_tokens: Maximum tokens to generate
+            correct_orientation: Whether to auto-correct orientation before processing
             
         Returns:
             Generated caption text, or None on error
         """
         try:
+            # Prepare image with orientation correction
+            processed_image_path = image_path
+            was_oriented = False
+            
+            if correct_orientation and ORIENTATION_AVAILABLE:
+                processed_image_path, was_oriented, orient_reason = prepare_image_for_processing(
+                    image_path, correct_orientation=True
+                )
+                if was_oriented:
+                    print(f"    Orientation corrected: {orient_reason}")
+            
             # Open and prepare image
-            image = Image.open(image_path).convert("RGB")
+            image = Image.open(processed_image_path).convert("RGB")
             
             # Prepare input
             prompt = task
@@ -202,27 +223,39 @@ class FlorenceCaptionGenerator:
                 # Florence-2 returns a dict with the task key
                 caption = list(caption.values())[0]
             
+            # Clean up temporary oriented image if created
+            if was_oriented and processed_image_path != image_path:
+                cleanup_temp_image(processed_image_path, image_path)
+            
             return str(caption).strip()
             
         except Exception as e:
             print(f"Error generating caption for {image_path}: {e}")
             return None
     
-    def generate_basic_caption(self, image_path: str) -> Optional[str]:
+    def generate_basic_caption(self, image_path: str, 
+                                correct_orientation: bool = True) -> Optional[str]:
         """Generate a basic (shorter) caption"""
-        return self.generate_caption(image_path, "<CAPTION>")
+        return self.generate_caption(image_path, "<CAPTION>", 
+                                     correct_orientation=correct_orientation)
     
-    def generate_detailed_caption(self, image_path: str) -> Optional[str]:
+    def generate_detailed_caption(self, image_path: str, 
+                                   correct_orientation: bool = True) -> Optional[str]:
         """Generate a detailed caption"""
-        return self.generate_caption(image_path, "<DETAILED_CAPTION>")
+        return self.generate_caption(image_path, "<DETAILED_CAPTION>",
+                                     correct_orientation=correct_orientation)
     
-    def generate_very_detailed_caption(self, image_path: str) -> Optional[str]:
+    def generate_very_detailed_caption(self, image_path: str, 
+                                        correct_orientation: bool = True) -> Optional[str]:
         """Generate a very detailed caption"""
-        return self.generate_caption(image_path, "<MORE_DETAILED_CAPTION>")
+        return self.generate_caption(image_path, "<MORE_DETAILED_CAPTION>",
+                                     correct_orientation=correct_orientation)
     
-    def extract_ocr(self, image_path: str) -> Optional[str]:
+    def extract_ocr(self, image_path: str, 
+                    correct_orientation: bool = True) -> Optional[str]:
         """Extract text from image using OCR"""
-        return self.generate_caption(image_path, "<OCR>")
+        return self.generate_caption(image_path, "<OCR>",
+                                     correct_orientation=correct_orientation)
 
 
 class EmbeddingGenerator:
@@ -403,7 +436,8 @@ def process_image_local(img_record: Dict,
                         caption_gen: Optional[FlorenceCaptionGenerator],
                         embed_gen: Optional[EmbeddingGenerator],
                         task: str = "<DETAILED_CAPTION>",
-                        regenerate: bool = False) -> Tuple[bool, Optional[str], Optional[List[float]], bool]:
+                        regenerate: bool = False,
+                        correct_orientation: bool = True) -> Tuple[bool, Optional[str], Optional[List[float]], bool]:
     """
     Process a single image locally
     
@@ -430,7 +464,8 @@ def process_image_local(img_record: Dict,
     caption = None
     if caption_gen:
         print(f"  Generating caption for: {file_path}")
-        caption = caption_gen.generate_caption(file_path, task=task)
+        caption = caption_gen.generate_caption(file_path, task=task, 
+                                               correct_orientation=correct_orientation)
         if not caption:
             return False, None, None, False
         print(f"    Caption: {caption[:80]}...")
@@ -681,6 +716,8 @@ Examples:
                        help='Limit number of images to process (0 = all)')
     parser.add_argument('--skip-existing', action='store_true',
                        help='Skip images that already have captions (when using --from-db)')
+    parser.add_argument('--no-orientation-correction', action='store_true',
+                       help='Disable automatic orientation correction before processing')
     
     args = parser.parse_args()
     
@@ -824,7 +861,8 @@ Examples:
                 caption_gen,
                 embed_gen,
                 args.task,
-                args.regenerate
+                args.regenerate,
+                not args.no_orientation_correction  # Pass orientation correction flag
             ): img for img in images_to_process
         }
         

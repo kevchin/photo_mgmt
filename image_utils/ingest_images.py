@@ -41,6 +41,14 @@ except ImportError:
 # Import database module
 from image_database import ImageDatabase, ImageMetadata
 
+# Import orientation correction utility
+try:
+    from image_orientation import prepare_image_for_processing, cleanup_temp_image, correct_image_orientation
+    ORIENTATION_AVAILABLE = True
+except ImportError:
+    ORIENTATION_AVAILABLE = False
+    print("Warning: image_orientation module not found. Auto-rotation disabled.")
+
 
 @dataclass
 class ImageInfo:
@@ -232,7 +240,8 @@ def ingest_from_sqlite(sqlite_db: str, postgres_conn: str,
                        caption_api_key: Optional[str] = None,
                        caption_model: str = "gpt-4o",
                        batch_size: int = 100,
-                       dry_run: bool = False) -> int:
+                       dry_run: bool = False,
+                       correct_orientation: bool = True) -> int:
     """Ingest images from SQLite database into PostgreSQL"""
     
     print(f"Reading images from SQLite database: {sqlite_db}")
@@ -252,7 +261,8 @@ def ingest_from_sqlite(sqlite_db: str, postgres_conn: str,
         caption_model=caption_model,
         batch_size=batch_size,
         dry_run=dry_run,
-        source_type="sqlite"
+        source_type="sqlite",
+        correct_orientation=correct_orientation
     )
 
 
@@ -261,7 +271,8 @@ def ingest_from_directory(source_dir: str, postgres_conn: str,
                           caption_api_key: Optional[str] = None,
                           caption_model: str = "gpt-4o",
                           batch_size: int = 100,
-                          dry_run: bool = False) -> int:
+                          dry_run: bool = False,
+                          correct_orientation: bool = True) -> int:
     """Ingest images from a directory into PostgreSQL"""
     
     print(f"Scanning directory: {source_dir}")
@@ -284,7 +295,8 @@ def ingest_from_directory(source_dir: str, postgres_conn: str,
         caption_model=caption_model,
         batch_size=batch_size,
         dry_run=dry_run,
-        source_type="directory"
+        source_type="directory",
+        correct_orientation=correct_orientation
     )
 
 
@@ -294,7 +306,8 @@ def process_images(images: List[Dict], postgres_conn: str,
                    caption_model: str = "gpt-4o",
                    batch_size: int = 100,
                    dry_run: bool = False,
-                   source_type: str = "directory") -> int:
+                   source_type: str = "directory",
+                   correct_orientation: bool = True) -> int:
     """Process and ingest images into PostgreSQL"""
     
     # Initialize PostgreSQL database
@@ -330,8 +343,19 @@ def process_images(images: List[Dict], postgres_conn: str,
             print(f"Warning: File not found: {file_path}")
             continue
         
-        # Calculate checksum
-        sha256 = calculate_sha256(path)
+        # Apply orientation correction before processing
+        processing_path = str(path)
+        if correct_orientation and ORIENTATION_AVAILABLE:
+            was_corrected, corrected_path, reason = correct_image_orientation(
+                str(path), overwrite=False
+            )
+            if was_corrected:
+                print(f"  Orientation corrected: {reason}")
+                processing_path = corrected_path
+                path = Path(corrected_path)  # Update path for subsequent processing
+        
+        # Calculate checksum (use original file for consistency)
+        sha256 = calculate_sha256(Path(file_path))
         
         # Check if already in database (skip if exists)
         if not dry_run and db.image_exists(sha256):
