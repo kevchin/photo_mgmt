@@ -77,7 +77,97 @@ ORDER BY date_created DESC;
 
 ---
 
-## 2. GPS Proximity Queries
+## 2. Black and White Photo Queries
+
+First, ensure the `is_black_and_white` column exists by running the detection script:
+
+```bash
+python detect_bw.py --db "postgresql://postgres:postgres@localhost:5432/image_archive" --all
+```
+
+### Find All Black and White Photos
+```sql
+SELECT file_path, caption, created_at
+FROM images
+WHERE is_black_and_white = TRUE
+ORDER BY created_at DESC
+LIMIT 20;
+```
+
+### Black and White Photos with Specific Content
+```sql
+-- B&W photos containing specific subjects
+SELECT file_path, caption, gps_latitude, gps_longitude
+FROM images
+WHERE is_black_and_white = TRUE
+  AND (
+    caption ILIKE '%street%' 
+    OR caption ILIKE '%portrait%' 
+    OR caption ILIKE '%architecture%'
+  )
+ORDER BY created_at DESC;
+
+-- B&W photos from a specific location (requires GPS)
+SELECT file_path, caption, date_created
+FROM images
+WHERE is_black_and_white = TRUE
+  AND gps_latitude IS NOT NULL
+  AND gps_longitude IS NOT NULL
+  AND caption ILIKE '%city%'
+ORDER BY date_created DESC;
+```
+
+### Statistics on Black and White Collection
+```sql
+-- Count B&W vs Color photos
+SELECT 
+  is_black_and_white,
+  count(*) as photo_count,
+  round(count(*) * 100.0 / sum(count(*)) over(), 2) as percentage
+FROM images
+GROUP BY is_black_and_white;
+
+-- B&W photos by year
+SELECT 
+  EXTRACT(YEAR FROM date_created) as year,
+  count(*) as bw_count
+FROM images
+WHERE is_black_and_white = TRUE
+GROUP BY EXTRACT(YEAR FROM date_created)
+ORDER BY year DESC;
+
+-- B&W photos by format
+SELECT 
+  format,
+  count(*) as bw_count
+FROM images
+WHERE is_black_and_white = TRUE
+GROUP BY format
+ORDER BY bw_count DESC;
+```
+
+### Combined: B&W + GPS Proximity
+```sql
+-- Find B&W photos within 50km of San Francisco
+SELECT 
+    file_name, 
+    caption,
+    6371 * acos(
+        cos(radians(37.7749)) * cos(radians(gps_latitude)) *
+        cos(radians(gps_longitude) - radians(-122.4194)) +
+        sin(radians(37.7749)) * sin(radians(gps_latitude))
+    ) AS distance_km
+FROM images
+WHERE is_black_and_white = TRUE
+  AND gps_latitude IS NOT NULL 
+  AND gps_longitude IS NOT NULL
+HAVING distance_km < 50
+ORDER BY distance_km ASC;
+```
+
+---
+
+## 3. GPS Proximity Queries
 
 ### Find Images Near Coordinates (Haversine Formula)
 Calculate distance from a specific point without PostGIS:
@@ -133,7 +223,7 @@ ORDER BY date_created DESC;
 
 ---
 
-## 3. Semantic Search (Vector Similarity)
+## 4. Semantic Search (Vector Similarity)
 
 Find images with similar meanings using embedding vectors:
 
@@ -156,7 +246,7 @@ LIMIT 10;
 
 ---
 
-## 4. Metadata Queries
+## 5. Metadata Queries
 
 ### Filter by File Format and Size
 ```sql
@@ -236,7 +326,7 @@ ORDER BY year DESC;
 
 ---
 
-## 5. Combined Queries
+## 6. Combined Queries
 
 ### Caption + GPS + Date Range
 Find beach photos within 100km of San Francisco taken between 2020-2024:
@@ -273,7 +363,7 @@ ORDER BY file_size DESC;
 
 ---
 
-## 6. Using with PostGIS (If Installed)
+## 7. Using with PostGIS (If Installed)
 
 If you have PostGIS installed (`CREATE EXTENSION postgis;`), you can use more efficient spatial queries:
 
