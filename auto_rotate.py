@@ -34,6 +34,15 @@ except ImportError:
     print("Error: PyTorch required. Install with: pip install torch")
     sys.exit(1)
 
+# Register HEIF/HEIC opener for Pillow
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+    HEIF_SUPPORT = True
+except ImportError:
+    HEIF_SUPPORT = False
+    print("Warning: pillow-heif not installed. HEIC files will be skipped.")
+
 # Global model variables
 _model = None
 _processor = None
@@ -305,6 +314,9 @@ def process_image(image_path: str, output_path: Optional[str] = None,
     
     # Check if it's an image
     valid_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp'}
+    if HEIF_SUPPORT:
+        valid_extensions.update({'.heic', '.heif'})
+    
     if Path(image_path).suffix.lower() not in valid_extensions:
         print(f"  Skipping: Not a supported image format")
         return False
@@ -359,6 +371,8 @@ def process_directory(directory: str, recursive: bool = False,
     
     # Find all images
     valid_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp'}
+    if HEIF_SUPPORT:
+        valid_extensions.update({'.heic', '.heif'})
     
     if recursive:
         image_files = [f for f in directory.rglob('*') 
