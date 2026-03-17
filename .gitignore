@@ -1,1 +1,4 @@
-(auto_rotate.py is a source file, so no need for any gitignore entries)
+```
+__pycache__/
+*.pyc
+```
