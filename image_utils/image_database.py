@@ -52,6 +52,7 @@ class ImageMetadata:
     date_modified: datetime
     gps_latitude: Optional[float] = None
     gps_longitude: Optional[float] = None
+    is_black_and_white: bool = False
     caption: Optional[str] = None
     caption_embedding: Optional[List[float]] = None
     tags: Optional[List[str]] = None
@@ -146,6 +147,7 @@ class ImageDatabase:
                         date_modified TIMESTAMP NOT NULL,
                         gps_latitude DOUBLE PRECISION,
                         gps_longitude DOUBLE PRECISION,
+                        is_black_and_white BOOLEAN DEFAULT FALSE,
                         caption TEXT,
                         caption_embedding vector({self.embedding_dimensions}),
                         tags TEXT[],
@@ -257,8 +259,8 @@ class ImageDatabase:
                     INSERT INTO images (
                         file_path, file_name, file_size, sha256, perceptual_hash,
                         width, height, format, date_created, date_modified,
-                        gps_latitude, gps_longitude, caption, caption_embedding, tags
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        gps_latitude, gps_longitude, is_black_and_white, caption, caption_embedding, tags
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (file_path) DO UPDATE SET
                         file_size = EXCLUDED.file_size,
                         sha256 = EXCLUDED.sha256,
@@ -270,6 +272,7 @@ class ImageDatabase:
                         date_modified = EXCLUDED.date_modified,
                         gps_latitude = EXCLUDED.gps_latitude,
                         gps_longitude = EXCLUDED.gps_longitude,
+                        is_black_and_white = EXCLUDED.is_black_and_white,
                         caption = EXCLUDED.caption,
                         caption_embedding = EXCLUDED.caption_embedding,
                         tags = EXCLUDED.tags,
@@ -281,6 +284,7 @@ class ImageDatabase:
                     metadata.width, metadata.height, metadata.format,
                     metadata.date_created, metadata.date_modified,
                     metadata.gps_latitude, metadata.gps_longitude,
+                    metadata.is_black_and_white,
                     metadata.caption, metadata.caption_embedding, metadata.tags
                 ))
                 img_id = cur.fetchone()[0]
@@ -298,7 +302,7 @@ class ImageDatabase:
                     (
                         m.file_path, m.file_name, m.file_size, m.sha256, m.perceptual_hash,
                         m.width, m.height, m.format, m.date_created, m.date_modified,
-                        m.gps_latitude, m.gps_longitude, m.caption, m.caption_embedding, m.tags
+                        m.gps_latitude, m.gps_longitude, m.is_black_and_white, m.caption, m.caption_embedding, m.tags
                     )
                     for m in metadata_list
                 ]
@@ -307,8 +311,8 @@ class ImageDatabase:
                     INSERT INTO images (
                         file_path, file_name, file_size, sha256, perceptual_hash,
                         width, height, format, date_created, date_modified,
-                        gps_latitude, gps_longitude, caption, caption_embedding, tags
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        gps_latitude, gps_longitude, is_black_and_white, caption, caption_embedding, tags
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (file_path) DO UPDATE SET
                         file_size = EXCLUDED.file_size,
                         sha256 = EXCLUDED.sha256,
@@ -320,6 +324,7 @@ class ImageDatabase:
                         date_modified = EXCLUDED.date_modified,
                         gps_latitude = EXCLUDED.gps_latitude,
                         gps_longitude = EXCLUDED.gps_longitude,
+                        is_black_and_white = EXCLUDED.is_black_and_white,
                         caption = EXCLUDED.caption,
                         caption_embedding = EXCLUDED.caption_embedding,
                         tags = EXCLUDED.tags,
