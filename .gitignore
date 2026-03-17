@@ -1,9 +1,1 @@
-(image_utils/pycache/
-*.pyc
-*.log
-*.tmp
-*.swp
-.env
-.env.local
-.vscode/
-.idea/)
+(auto_rotate.py is a source file, so no need for any gitignore entries)
