@@ -66,7 +66,53 @@ python image_organizer.py organize \
     --save-db images.db  # Optional: create SQLite database
 ```
 
-### Ingest into PostgreSQL (NEW)
+### **NEW: Incremental Ingestion (Recommended for Adding New Photos)**
+
+The `incremental_ingest.py` script is designed specifically for your use case: adding a small batch of new photos to an existing archive without reprocessing thousands of existing photos.
+
+**Key Benefits:**
+- ✅ Only processes NEW photos (fast, even with large archives)
+- ✅ Uses PostgreSQL database checksums for deduplication (no archive scanning needed)
+- ✅ Automatically organizes by date into YYYY/MM/DD structure
+- ✅ Optional AI caption generation
+- ✅ Safe dry-run mode to preview changes
+
+```bash
+# Basic usage - add new photos to archive and database
+python incremental_ingest.py \
+    --new-photos /path/to/new/photos \
+    --archive /path/to/organized/archive \
+    --db "postgresql://user:pass@localhost/image_archive"
+
+# With local AI caption generation (offline, no API key needed)
+python incremental_ingest.py \
+    --new-photos /path/to/new/photos \
+    --archive /path/to/organized/archive \
+    --db "postgresql://user:pass@localhost/image_archive" \
+    --generate-captions \
+    --local-captions
+
+# Dry run - preview what would happen without making changes
+python incremental_ingest.py \
+    --new-photos /path/to/new/photos \
+    --archive /path/to/organized/archive \
+    --db "postgresql://user:pass@localhost/image_archive" \
+    --dry-run
+```
+
+**Workflow:**
+1. Scans only the new photos folder (typically < 100 photos)
+2. Checks each photo against PostgreSQL database using SHA256 checksums
+3. Skips duplicates (already in database)
+4. For unique photos:
+   - Extracts date metadata (EXIF or file modification time)
+   - Copies to YYYY/MM/DD organized archive directory
+   - Adds to PostgreSQL database with full metadata
+   - Optionally generates AI captions
+
+### Ingest from Existing Organized Directory
+
+If you already have photos organized in a directory structure, use `ingest_images.py`:
 
 **If you already have an organized directory**, skip `image_organizer.py` and ingest directly:
 
