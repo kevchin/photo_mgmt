@@ -36,13 +36,37 @@ except ImportError:
     print("Error: Pillow required. Install with: pip install Pillow")
     sys.exit(1)
 
-# Import orientation detection from auto_rotate
+# Import orientation detection from image_orientation module
 try:
-    from auto_rotate import get_exif_rotation, determine_rotation_from_responses
-    AUTO_ROTATE_AVAILABLE = True
+    from image_orientation import get_exif_rotation
+    # determine_rotation_from_responses may not exist in all versions
+    try:
+        from image_orientation import determine_rotation_from_responses
+        HAS_AI_DETECTION = True
+    except ImportError:
+        HAS_AI_DETECTION = False
+    IMAGE_ORIENTATION_AVAILABLE = True
 except ImportError:
-    print("Warning: auto_rotate module not found. Will use basic EXIF detection only.")
-    AUTO_ROTATE_AVAILABLE = False
+    print("Warning: image_orientation module not found. Will use basic EXIF detection only.")
+    IMAGE_ORIENTATION_AVAILABLE = False
+    HAS_AI_DETECTION = False
+    
+    # Fallback: define a minimal get_exif_rotation if module not available
+    def get_exif_rotation(image_path: str) -> int:
+        """Fallback EXIF rotation detection"""
+        try:
+            from PIL import Image
+            with Image.open(image_path) as img:
+                exif_data = img._getexif()
+                if exif_data is None:
+                    return 0
+                orientation = exif_data.get(274)
+                if orientation is None:
+                    return 0
+                orientation_map = {1: 0, 3: 180, 6: 270, 8: 90}
+                return orientation_map.get(orientation, 0)
+        except:
+            return 0
 
 
 def get_images_needing_check(conn_string: str, batch_size: int = 100) -> List[Dict]:
