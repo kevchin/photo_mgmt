@@ -49,6 +49,7 @@ except ImportError as e:
 
 try:
     import imagehash
+    from imagehash import ImageHash
     HAS_IMAGEHASH = True
 except ImportError:
     HAS_IMAGEHASH = False
@@ -331,6 +332,24 @@ def add_single_photo(photo_path: str, db_url: str, archive_dir: str,
         print("  (Skipping duplicate check in dry-run mode)")
     
     print(f"  SHA256: {sha256[:16]}... (unique)")
+    
+    # Check for visually similar images using perceptual hash
+    if HAS_IMAGEHASH and not dry_run:
+        try:
+            new_phash = imagehash.phash(Image.open(source_path))
+            new_phash_hex = str(new_phash)
+            similar_images = db.find_similar_by_perceptual_hash(new_phash_hex, max_hamming_distance=10)
+            
+            if similar_images:
+                print(f"\n  ⚠️  WARNING: Found {len(similar_images)} visually similar image(s):")
+                for img in similar_images:
+                    existing_phash = imagehash.hex_to_hash(img['perceptual_hash'])
+                    hamming_dist = new_phash - existing_phash
+                    print(f"     - {img['file_name']} (Hamming distance: {hamming_dist})")
+                print(f"  Note: Rotated versions may have different perceptual hashes.")
+                print(f"  Proceeding anyway (not blocking rotated/duplicate visuals by default)...\n")
+        except Exception as e:
+            print(f"  Warning: Could not check for similar images: {e}")
     
     # Extract metadata
     print("\nStep 2: Extracting metadata...")
