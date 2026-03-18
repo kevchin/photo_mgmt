@@ -232,7 +232,18 @@ def show_results_grid(rows, cols=3, thumb_width=300):
                     st.image(path, width=thumb_width)
                 except Exception:
                     st.text("Could not load image")
-                st.markdown(f"**{row.get('file_name') or os.path.basename(path)}**")
+                file_name = row.get('file_name') or os.path.basename(path)
+                st.markdown(f"**{file_name}**")
+                # Show YYYY/MM/DD directory path if available
+                if path:
+                    dir_path = os.path.dirname(path)
+                    # Extract last 3 components for YYYY/MM/DD format
+                    path_parts = dir_path.split(os.sep)
+                    if len(path_parts) >= 3:
+                        date_dir = os.sep.join(path_parts[-3:])
+                        st.caption(f"📁 {date_dir}")
+                    elif dir_path:
+                        st.caption(f"📁 {dir_path}")
                 cap = row.get('caption')
                 if cap:
                     st.caption(cap)
