@@ -1,6 +1,7 @@
 import os
 import io
 import json
+import base64
 import psycopg2
 import psycopg2.extras
 import streamlit as st
@@ -8,6 +9,79 @@ from PIL import Image
 
 
 st.set_page_config(page_title="Photo Archive Explorer", layout="wide")
+
+
+def get_image_url(file_path: str, rotation_angle: int = 0) -> str:
+    """Generate a URL to view the image in the browser.
+    
+    For local files served by Streamlit, we use a relative path approach.
+    When Streamlit serves files from the same machine, clicking opens in browser.
+    """
+    # Check if file exists
+    if not os.path.exists(file_path):
+        return None
+    
+    # Get absolute path
+    abs_path = os.path.abspath(file_path)
+    
+    # Return the absolute path - users can open it directly or copy-paste
+    # For browser viewing, we'll provide a button to download/view
+    return abs_path
+
+
+def view_image_in_browser(file_path: str, file_name: str, rotation_angle: int = 0):
+    """Display a button to view/download image in browser with rotation correction.
+    
+    When user clicks the button, they can:
+    - Open the image in a new browser tab
+    - Download it to their local machine
+    The image will have rotation correction applied if needed.
+    """
+    if not os.path.exists(file_path):
+        return
+    
+    try:
+        # Determine MIME type based on file extension
+        file_lower = file_path.lower()
+        if file_lower.endswith(('.jpg', '.jpeg')):
+            mime_type = "image/jpeg"
+        elif file_lower.endswith('.png'):
+            mime_type = "image/png"
+        elif file_lower.endswith('.gif'):
+            mime_type = "image/gif"
+        elif file_lower.endswith('.webp'):
+            mime_type = "image/webp"
+        else:
+            mime_type = "application/octet-stream"
+        
+        # Read the image
+        with open(file_path, 'rb') as f:
+            image_bytes = f.read()
+        
+        # Apply rotation if needed (before serving)
+        if rotation_angle != 0:
+            from PIL import Image
+            import io as io_module
+            img = Image.open(io_module.BytesIO(image_bytes))
+            # Rotate counter-clockwise by the specified angle
+            img = img.rotate(-rotation_angle, expand=True)
+            buffer = io_module.BytesIO()
+            # Save in original format or JPEG as fallback
+            save_format = img.format or 'JPEG'
+            img.save(buffer, format=save_format)
+            image_bytes = buffer.getvalue()
+        
+        # Show download button - clicking allows opening in new tab or downloading
+        st.download_button(
+            label="🖼️ Open in browser",
+            data=image_bytes,
+            file_name=file_name,
+            mime=mime_type,
+            key=f"view_{os.path.basename(file_path)}_{rotation_angle}",
+            use_container_width=True
+        )
+    except Exception as e:
+        st.error(f"Could not load image: {e}")
 
 
 def connect_db(conn_str: str):
@@ -107,7 +181,7 @@ def query_caption_pgvector(query_vec, limit=20):
         return []
     emb_str = '[' + ','.join(map(str, query_vec)) + ']'
     sql = """
-    SELECT id, file_path, file_name, caption, gps_latitude, gps_longitude, width, height, format,
+    SELECT id, file_path, file_name, caption, gps_latitude, gps_longitude, width, height, format, orientation_correction,
            1 - (caption_embedding <=> %s::vector) as similarity_score
     FROM images
     WHERE caption_embedding IS NOT NULL
@@ -150,7 +224,7 @@ def query_caption_text(text_q, limit=50):
         st.error('No connection string stored; connect first')
         return []
     pattern = f"%{text_q}%"
-    sql = "SELECT id, file_path, file_name, caption, gps_latitude, gps_longitude, width, height, format FROM images WHERE caption ILIKE %s ORDER BY date_created DESC LIMIT %s"
+    sql = "SELECT id, file_path, file_name, caption, gps_latitude, gps_longitude, width, height, format, orientation_correction FROM images WHERE caption ILIKE %s ORDER BY date_created DESC LIMIT %s"
     try:
         with psycopg2.connect(conn_str) as local_conn:
             local_conn.autocommit = True
@@ -187,7 +261,7 @@ def query_metadata_location(lat, lon, radius_km=5.0, limit=100):
         st.error('No connection string stored; connect first')
         return []
     sql = f"""
-    SELECT id, file_path, file_name, caption, gps_latitude, gps_longitude, width, height, format,
+    SELECT id, file_path, file_name, caption, gps_latitude, gps_longitude, width, height, format, orientation_correction,
            (6371 * acos(
               cos(radians(%s)) * cos(radians(gps_latitude)) * cos(radians(gps_longitude) - radians(%s)) +
               sin(radians(%s)) * sin(radians(gps_latitude))
@@ -219,21 +293,45 @@ def query_metadata_location(lat, lon, radius_km=5.0, limit=100):
         return []
 
 
-def show_results_grid(rows, cols=3, thumb_width=300):
+def show_results_grid(rows, cols=3, thumb_width=250):
+    """Display results in a grid with images and clickable filename links.
+    
+    Each image card shows:
+    - Thumbnail preview
+    - Button to view/download full image (with rotation correction applied)
+    - Filename as text
+    - Directory path (YYYY/MM/DD format)
+    - Rotation indicator if correction is needed
+    - Caption
+    - GPS coordinates if available
+    """
     if not rows:
         st.info("No results")
         return
+    
     for i in range(0, len(rows), cols):
         cols_ui = st.columns(cols)
         for j, row in enumerate(rows[i:i+cols]):
             with cols_ui[j]:
                 path = row.get('file_path') or row.get('path')
+                file_name = row.get('file_name') or os.path.basename(path) if path else "Unknown"
+                
+                # Get rotation angle if available
+                rotation_angle = row.get('orientation_correction', 0) or 0
+                
+                # Display thumbnail
                 try:
-                    st.image(path, width=thumb_width)
+                    st.image(path, width=thumb_width, use_container_width=False)
                 except Exception:
                     st.text("Could not load image")
-                file_name = row.get('file_name') or os.path.basename(path)
+                
+                # Button to view/download full image (applies rotation if needed)
+                if path and os.path.exists(path):
+                    view_image_in_browser(path, file_name, rotation_angle)
+                
+                # Show filename
                 st.markdown(f"**{file_name}**")
+                
                 # Show YYYY/MM/DD directory path if available
                 if path:
                     dir_path = os.path.dirname(path)
@@ -244,9 +342,17 @@ def show_results_grid(rows, cols=3, thumb_width=300):
                         st.caption(f"📁 {date_dir}")
                     elif dir_path:
                         st.caption(f"📁 {dir_path}")
+                    
+                    # Add orientation correction indicator if present
+                    if rotation_angle != 0:
+                        st.caption(f"🔄 Rotation: {rotation_angle}°")
+                
+                # Show caption if available
                 cap = row.get('caption')
                 if cap:
-                    st.caption(cap)
+                    st.caption(cap[:100] + "..." if len(cap) > 100 else cap)
+                
+                # Show GPS coordinates if available
                 if row.get('gps_latitude') and row.get('gps_longitude'):
                     st.write(f"📍 {row['gps_latitude']:.5f}, {row['gps_longitude']:.5f}")
 
