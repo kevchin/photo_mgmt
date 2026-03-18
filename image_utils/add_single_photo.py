@@ -271,7 +271,8 @@ def generate_local_caption(caption_generator, image_path: str,
 def add_single_photo(photo_path: str, db_url: str, archive_dir: str,
                     caption_task: str = "<DETAILED_CAPTION>",
                     dry_run: bool = False,
-                    verbose: bool = False) -> Tuple[bool, str]:
+                    verbose: bool = False,
+                    no_archive: bool = False) -> Tuple[bool, str]:
     """
     Add a single photo to the database with caption
     
@@ -282,12 +283,13 @@ def add_single_photo(photo_path: str, db_url: str, archive_dir: str,
         caption_task: Florence-2 task prompt for caption generation
         dry_run: If True, don't make any changes
         verbose: Print detailed output
+        no_archive: If True, skip copying to archive directory
     
     Returns:
         Tuple of (success, message)
     """
     source_path = Path(photo_path)
-    archive_path = Path(archive_dir)
+    archive_path = Path(archive_dir) if archive_dir else None
     
     # Validate inputs
     if not source_path.exists():
@@ -295,6 +297,9 @@ def add_single_photo(photo_path: str, db_url: str, archive_dir: str,
     
     if not source_path.is_file():
         return False, f"ERROR: Not a file: {photo_path}"
+    
+    if not no_archive and not archive_path:
+        return False, "ERROR: Archive directory required unless --no-archive is specified"
     
     # Initialize local caption generator
     if not _try_import_local_caption():
@@ -304,7 +309,10 @@ def add_single_photo(photo_path: str, db_url: str, archive_dir: str,
     print(f"ADDING SINGLE PHOTO")
     print(f"{'=' * 60}")
     print(f"Source: {source_path.absolute()}")
-    print(f"Archive: {archive_path.absolute()}")
+    if no_archive:
+        print(f"Archive: SKIPPED (--no-archive specified)")
+    else:
+        print(f"Archive: {archive_path.absolute()}")
     print(f"Dry run: {dry_run}")
     print()
     
@@ -341,12 +349,17 @@ def add_single_photo(photo_path: str, db_url: str, archive_dir: str,
         print(f"  GPS: {meta['gps_latitude']:.4f}, {meta['gps_longitude']:.4f}")
     
     # Copy to archive
-    print("\nStep 3: Copying to archive...")
-    dest_path, copy_status = copy_to_archive(source_path, archive_path, date_taken, dry_run)
-    print(f"  {copy_status}")
-    
-    if dest_path is None and not dry_run:
-        return False, f"FAILED: Could not copy to archive: {copy_status}"
+    dest_path = source_path  # Default to source path if no archive
+    if not no_archive:
+        print("\nStep 3: Copying to archive...")
+        dest_path, copy_status = copy_to_archive(source_path, archive_path, date_taken, dry_run)
+        print(f"  {copy_status}")
+        
+        if dest_path is None and not dry_run:
+            return False, f"FAILED: Could not copy to archive: {copy_status}"
+    else:
+        print("\nStep 3: Skipping archive copy (--no-archive specified)")
+        dest_path = source_path
     
     # Generate local caption
     print(f"\nStep 4: Generating local caption...")
@@ -419,8 +432,10 @@ def main():
     parser.add_argument('photo', help='Path to the photo file')
     parser.add_argument('--db-url', required=True, 
                        help='PostgreSQL connection URL (e.g., postgresql://user:pass@localhost/dbname)')
-    parser.add_argument('--archive-dir', required=True,
-                       help='Archive directory where photos will be organized (YYYY/MM/DD)')
+    parser.add_argument('--archive-dir', 
+                       help='Archive directory where photos will be organized (YYYY/MM/DD). Required unless --no-archive is specified.')
+    parser.add_argument('--no-archive', action='store_true',
+                       help='Skip copying the photo to the archive directory')
     parser.add_argument('--caption-task', default='<DETAILED_CAPTION>',
                        choices=['<CAPTION>', '<DETAILED_CAPTION>', '<MORE_DETAILED_CAPTION>'],
                        help='Florence-2 task prompt for caption generation')
@@ -431,6 +446,10 @@ def main():
     
     args = parser.parse_args()
     
+    # Validate arguments
+    if not args.no_archive and not args.archive_dir:
+        parser.error("--archive-dir is required unless --no-archive is specified")
+    
     # Execute
     success, message = add_single_photo(
         photo_path=args.photo,
@@ -438,7 +457,8 @@ def main():
         archive_dir=args.archive_dir,
         caption_task=args.caption_task,
         dry_run=args.dry_run,
-        verbose=args.verbose
+        verbose=args.verbose,
+        no_archive=args.no_archive
     )
     
     print(f"\n{'=' * 60}")
