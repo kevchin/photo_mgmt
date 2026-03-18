@@ -5,7 +5,7 @@ import base64
 import psycopg2
 import psycopg2.extras
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageOps
 
 
 st.set_page_config(page_title="Photo Archive Explorer", layout="wide")
@@ -319,42 +319,43 @@ def show_results_grid(rows, cols=3, thumb_width=250):
                 # Get rotation angle if available
                 rotation_angle = row.get('orientation_correction', 0) or 0
                 
-                # Display thumbnail
+                # Display thumbnail with EXIF orientation correction and hover caption
                 try:
-                    st.image(path, width=thumb_width, use_container_width=False)
+                    img = Image.open(path)
+                    img = ImageOps.exif_transpose(img)  # Apply EXIF orientation fix
+                    
+                    # Build hover caption with filename, date directory, rotation, caption, and GPS
+                    hover_parts = []
+                    hover_parts.append(file_name)
+                    
+                    if path:
+                        dir_path = os.path.dirname(path)
+                        path_parts = dir_path.split(os.sep)
+                        if len(path_parts) >= 3:
+                            date_dir = os.sep.join(path_parts[-3:])
+                            hover_parts.append(f"📁 {date_dir}")
+                        elif dir_path:
+                            hover_parts.append(f"📁 {dir_path}")
+                        
+                        if rotation_angle != 0:
+                            hover_parts.append(f"🔄 Rotation: {rotation_angle}°")
+                    
+                    cap = row.get('caption')
+                    if cap:
+                        hover_parts.append(cap[:100] + "..." if len(cap) > 100 else cap)
+                    
+                    if row.get('gps_latitude') and row.get('gps_longitude'):
+                        hover_parts.append(f"📍 {row['gps_latitude']:.5f}, {row['gps_longitude']:.5f}")
+                    
+                    hover_caption = " | ".join(hover_parts)
+                    
+                    st.image(img, width=thumb_width, use_container_width=False, caption=hover_caption)
                 except Exception:
                     st.text("Could not load image")
                 
                 # Button to view/download full image (applies rotation if needed)
                 if path and os.path.exists(path):
                     view_image_in_browser(path, file_name, rotation_angle)
-                
-                # Show filename
-                st.markdown(f"**{file_name}**")
-                
-                # Show YYYY/MM/DD directory path if available
-                if path:
-                    dir_path = os.path.dirname(path)
-                    # Extract last 3 components for YYYY/MM/DD format
-                    path_parts = dir_path.split(os.sep)
-                    if len(path_parts) >= 3:
-                        date_dir = os.sep.join(path_parts[-3:])
-                        st.caption(f"📁 {date_dir}")
-                    elif dir_path:
-                        st.caption(f"📁 {dir_path}")
-                    
-                    # Add orientation correction indicator if present
-                    if rotation_angle != 0:
-                        st.caption(f"🔄 Rotation: {rotation_angle}°")
-                
-                # Show caption if available
-                cap = row.get('caption')
-                if cap:
-                    st.caption(cap[:100] + "..." if len(cap) > 100 else cap)
-                
-                # Show GPS coordinates if available
-                if row.get('gps_latitude') and row.get('gps_longitude'):
-                    st.write(f"📍 {row['gps_latitude']:.5f}, {row['gps_longitude']:.5f}")
 
 
 def main():
