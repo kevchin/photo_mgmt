@@ -302,7 +302,7 @@ def show_results_grid(rows, cols=3, thumb_width=250):
     - Filename as text
     - Directory path (YYYY/MM/DD format)
     - Rotation indicator if correction is needed
-    - Caption
+    - Caption (full caption visible on hover and in expandable section)
     - GPS coordinates if available
     """
     if not rows:
@@ -319,12 +319,13 @@ def show_results_grid(rows, cols=3, thumb_width=250):
                 # Get rotation angle if available
                 rotation_angle = row.get('orientation_correction', 0) or 0
                 
-                # Display thumbnail with EXIF orientation correction and hover caption
+                # Display thumbnail with EXIF orientation correction
                 try:
                     img = Image.open(path)
                     img = ImageOps.exif_transpose(img)  # Apply EXIF orientation fix
                     
-                    # Build hover caption with filename, date directory, rotation, caption, and GPS
+                    # Build hover caption with filename, date directory, rotation, and GPS
+                    # Keep this shorter for the tooltip since it has limited space
                     hover_parts = []
                     hover_parts.append(file_name)
                     
@@ -340,10 +341,6 @@ def show_results_grid(rows, cols=3, thumb_width=250):
                         if rotation_angle != 0:
                             hover_parts.append(f"🔄 Rotation: {rotation_angle}°")
                     
-                    cap = row.get('caption')
-                    if cap:
-                        hover_parts.append(cap[:100] + "..." if len(cap) > 100 else cap)
-                    
                     if row.get('gps_latitude') and row.get('gps_longitude'):
                         hover_parts.append(f"📍 {row['gps_latitude']:.5f}, {row['gps_longitude']:.5f}")
                     
@@ -356,6 +353,12 @@ def show_results_grid(rows, cols=3, thumb_width=250):
                 # Button to view/download full image (applies rotation if needed)
                 if path and os.path.exists(path):
                     view_image_in_browser(path, file_name, rotation_angle)
+                
+                # Show full caption in an expandable section
+                cap = row.get('caption')
+                if cap:
+                    with st.expander("📝 View full caption", expanded=False):
+                        st.write(cap)
 
 
 def main():
