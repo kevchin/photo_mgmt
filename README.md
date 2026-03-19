@@ -1,4 +1,4 @@
-# Photo Utilities
+# Photo Utilities - V1
 
 A comprehensive set of Python tools for deduplicating, organizing, captioning, and searching your photo archive using local AI models.
 
