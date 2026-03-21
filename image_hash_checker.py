@@ -62,16 +62,22 @@ def compute_perceptual_hash(filepath: str) -> str:
         raise
 
 
-def get_creation_date(filepath: str) -> datetime:
+def get_creation_date_and_gps(filepath: str) -> tuple[datetime, tuple[float, float] | None]:
     """
-    Get creation date from image EXIF metadata.
+    Get creation date from image EXIF metadata and GPS coordinates.
     Falls back to file modification time if EXIF date not available.
     
-    Priority order:
+    Returns:
+        tuple: (creation_date, gps_coords) where gps_coords is (lat, lon) or None
+    
+    Priority order for date:
     1. DateTimeOriginal (when photo was taken)
     2. DateTime (when image was created/modified)
     3. File modification time
     """
+    creation_date = None
+    gps_coords = None
+    
     try:
         with Image.open(filepath) as img:
             exif_data = img._getexif()
@@ -85,25 +91,76 @@ def get_creation_date(filepath: str) -> datetime:
                     date_str = exif['DateTimeOriginal']
                     # Format: "YYYY:MM:DD HH:MM:SS"
                     try:
-                        return datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
+                        creation_date = datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
                     except ValueError:
                         pass
                 
                 # Try DateTime as fallback
-                if 'DateTime' in exif:
+                if creation_date is None and 'DateTime' in exif:
                     date_str = exif['DateTime']
                     try:
-                        return datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
+                        creation_date = datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
                     except ValueError:
                         pass
+                
+                # Extract GPS coordinates if available
+                if 'GPSInfo' in exif:
+                    gps_info = exif['GPSInfo']
+                    gps_coords = extract_gps_coordinates(gps_info)
+                    
     except Exception:
         # If we can't read EXIF, fall through to file stats
         pass
     
-    # Fall back to file modification time
-    stat = os.stat(filepath)
-    # Use mtime as creation date proxy (ctime is metadata change time on Unix)
-    return datetime.fromtimestamp(stat.st_mtime)
+    # Fall back to file modification time if no EXIF date found
+    if creation_date is None:
+        stat = os.stat(filepath)
+        # Use mtime as creation date proxy (ctime is metadata change time on Unix)
+        creation_date = datetime.fromtimestamp(stat.st_mtime)
+    
+    return creation_date, gps_coords
+
+
+def extract_gps_coordinates(gps_info: dict) -> tuple[float, float] | None:
+    """
+    Extract latitude and longitude from GPSInfo EXIF data.
+    
+    Args:
+        gps_info: Dictionary containing GPS EXIF tags
+        
+    Returns:
+        tuple: (latitude, longitude) or None if extraction fails
+    """
+    try:
+        # GPS tags reference: https://exiftool.org/TagNames/GPS.html
+        lat_ref = gps_info.get(1, 'N')  # GPSLatitudeRef
+        lat = gps_info.get(2)           # GPSLatitude
+        lon_ref = gps_info.get(3, 'E')  # GPSLongitudeRef
+        lon = gps_info.get(4)           # GPSLongitude
+        
+        if lat is None or lon is None:
+            return None
+        
+        def convert_to_degrees(value):
+            """Convert GPS coordinates from [deg, min, sec] to decimal degrees."""
+            d = float(value[0][0]) / float(value[0][1])
+            m = float(value[1][0]) / float(value[1][1])
+            s = float(value[2][0]) / float(value[2][1])
+            return d + (m / 60.0) + (s / 3600.0)
+        
+        lat_decimal = convert_to_degrees(lat)
+        lon_decimal = convert_to_degrees(lon)
+        
+        # Apply reference direction (N/S, E/W)
+        if lat_ref == 'S':
+            lat_decimal = -lat_decimal
+        if lon_ref == 'W':
+            lon_decimal = -lon_decimal
+        
+        return (lat_decimal, lon_decimal)
+        
+    except Exception:
+        return None
 
 
 def format_date_path(date: datetime) -> str:
@@ -133,8 +190,8 @@ def main():
     sha256 = compute_sha256(filepath)
     phash = compute_perceptual_hash(filepath)
     
-    # Get creation date and format directory path
-    creation_date = get_creation_date(filepath)
+    # Get creation date, GPS coordinates and format directory path
+    creation_date, gps_coords = get_creation_date_and_gps(filepath)
     date_path = format_date_path(creation_date)
     
     # Get filename
@@ -148,6 +205,11 @@ def main():
     print(f"Filename: {filename}")
     print(f"\nCreation Date: {creation_date.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Proposed Directory: {date_path}")
+    if gps_coords:
+        lat, lon = gps_coords
+        print(f"Extracted GPS (lat,lon): {lat:.6f}, {lon:.6f}")
+    else:
+        print("Extracted GPS (lat,lon): Not available")
     print(f"Proposed Full Path: {date_path}/{filename}")
     
     print("\n" + "-" * 60)
