@@ -1,1 +1,21 @@
-(image_hash_checker.py is a source file, test_with_gps.jpg is an image file - neither should be ignored)
+```
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+.ENV
+.python-version
+
+# Image processing dependencies (if any)
+Pillow/
+pillow/
+
+# General
+.DS_Store
+Thumbs.db
+```
