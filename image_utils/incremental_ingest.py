@@ -189,11 +189,12 @@ def extract_photo_metadata(file_path: Path) -> Dict:
                 metadata['camera_make'] = exif_data.get(TAGS[271])
                 metadata['camera_model'] = exif_data.get(TAGS[272])
                 
-                # Date - prefer original datetime
-                date_str = exif_data.get(TAGS[36867]) or exif_data.get(TAGS[306])
+                # Date - prefer original datetime (DateTimeOriginal), then DateTime
+                # Tag 36867 = DateTimeOriginal, Tag 306 = DateTime
+                date_str = exif_data.get(36867) or exif_data.get(306)
                 if date_str:
-                    metadata['exif_date'] = date_str
-                    parsed = parse_exif_date(date_str)
+                    metadata['exif_date'] = str(date_str)
+                    parsed = parse_exif_date(str(date_str))
                     if parsed:
                         metadata['date_taken'] = parsed
                 
@@ -206,23 +207,30 @@ def extract_photo_metadata(file_path: Path) -> Dict:
                     from PIL.ExifTags import GPSTAGS
                     gps_data = {GPSTAGS.get(t, t): v for t, v in gps_info.items()}
                     
+                    # Helper function to convert IFDRational to float (matches image_metadata_extractor.py)
+                    def convert_to_degrees(value):
+                        """Convert GPS coordinates to decimal degrees."""
+                        try:
+                            # Handle IFDRational objects (PIL.TiffImagePlugin.IFDRational)
+                            def get_float(val):
+                                if hasattr(val, 'numerator') and hasattr(val, 'denominator'):
+                                    return float(val.numerator) / float(val.denominator)
+                                return float(val)
+                            
+                            d = get_float(value[0])
+                            m = get_float(value[1])
+                            s = get_float(value[2])
+                            return d + (m / 60.0) + (s / 3600.0)
+                        except (ZeroDivisionError, IndexError, TypeError, AttributeError):
+                            return None
+                    
                     # Extract latitude
                     if 'GPSLatitude' in gps_data and 'GPSLatitudeRef' in gps_data:
                         try:
                             lat_dms = gps_data['GPSLatitude']
                             lat_ref = gps_data['GPSLatitudeRef']
-                            if len(lat_dms) >= 3:
-                                # Handle IFDRational objects properly (Pillow >= 9.1)
-                                def to_float(val):
-                                    if isinstance(val, (int, float)):
-                                        return float(val)
-                                    # For IFDRational, use numerator/denominator
-                                    return float(val) / float(val.denominator) if hasattr(val, 'denominator') else float(val)
-                                
-                                degrees = to_float(lat_dms[0])
-                                minutes = to_float(lat_dms[1])
-                                seconds = to_float(lat_dms[2])
-                                decimal = degrees + (minutes / 60.0) + (seconds / 3600.0)
+                            decimal = convert_to_degrees(lat_dms)
+                            if decimal is not None:
                                 if lat_ref in ['S', 'W']:
                                     decimal = -decimal
                                 metadata['gps_latitude'] = decimal
@@ -234,18 +242,8 @@ def extract_photo_metadata(file_path: Path) -> Dict:
                         try:
                             lon_dms = gps_data['GPSLongitude']
                             lon_ref = gps_data['GPSLongitudeRef']
-                            if len(lon_dms) >= 3:
-                                # Handle IFDRational objects properly (Pillow >= 9.1)
-                                def to_float(val):
-                                    if isinstance(val, (int, float)):
-                                        return float(val)
-                                    # For IFDRational, use numerator/denominator
-                                    return float(val) / float(val.denominator) if hasattr(val, 'denominator') else float(val)
-                                
-                                degrees = to_float(lon_dms[0])
-                                minutes = to_float(lon_dms[1])
-                                seconds = to_float(lon_dms[2])
-                                decimal = degrees + (minutes / 60.0) + (seconds / 3600.0)
+                            decimal = convert_to_degrees(lon_dms)
+                            if decimal is not None:
                                 if lon_ref in ['S', 'W']:
                                     decimal = -decimal
                                 metadata['gps_longitude'] = decimal
@@ -373,7 +371,7 @@ def initialize_caption_generator(use_local: bool = False, api_key: Optional[str]
         try:
             from generate_captions_local import FlorenceCaptionGenerator as CaptionGeneratorLocal
             print(f"Using local caption generator (Florence-2)")
-            return CaptionGeneratorLocal()
+            return CaptionGeneratorLocal(model_name="microsoft/Florence-2-base")
         except ImportError as e:
             print(f"Warning: Local caption generator not available: {e}")
             print("Install with: pip install torch transformers")
