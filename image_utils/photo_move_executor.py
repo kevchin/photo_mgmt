@@ -3,7 +3,7 @@
 Photo Move Executor - Processes CSV from photo_dedup_scanner.py to move unique photos.
 
 This tool reads the CSV output from photo_dedup_scanner.py and performs the actual
-file operations (copy/move) to organize photos into YYYY/MM/DD directory structure.
+file operations (copy) to organize photos into YYYY/MM/DD directory structure.
 
 Features:
 - Dry run mode to preview operations without making changes
@@ -30,7 +30,7 @@ import shutil
 import hashlib
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional
 
 
 class PhotoMoveExecutor:
@@ -39,6 +39,7 @@ class PhotoMoveExecutor:
     def __init__(self, archive_path: str, dry_run: bool = False, 
                  overwrite: bool = False, rename_collision: bool = False,
                  verbose: bool = False):
+        # Strictly use the provided archive path as the root
         self.archive_path = Path(archive_path).expanduser().resolve()
         self.dry_run = dry_run
         self.overwrite = overwrite
@@ -97,7 +98,11 @@ class PhotoMoveExecutor:
     def process_row(self, row: Dict) -> Optional[Dict]:
         """Process a single row from the CSV."""
         filepath = Path(row['filepath']).expanduser().resolve()
+        
+        # The CSV contains the relative YYYY/MM/DD path in 'target_directory'
+        # We join this strictly to the user-provided archive root
         target_dir = self.archive_path / row['target_directory']
+        
         new_filename = row['new_filename']
         is_duplicate = row.get('is_duplicate', 'False').lower() == 'true'
         expected_sha256 = row.get('sha256', '')
@@ -197,7 +202,7 @@ class PhotoMoveExecutor:
             sys.exit(1)
         
         print(f"📋 Processing CSV: {csv_path}")
-        print(f"📁 Archive directory: {self.archive_path}")
+        print(f"📁 Archive ROOT directory: {self.archive_path}")
         print(f"🔍 Mode: {'DRY RUN' if self.dry_run else 'LIVE'}")
         print(f"📝 Options: overwrite={self.overwrite}, rename_collision={self.rename_collision}")
         print("-" * 80)
@@ -267,7 +272,7 @@ class PhotoMoveExecutor:
                 f.write("Photo Move Operations Log\n")
                 f.write("=" * 80 + "\n")
                 f.write(f"Generated: {datetime.now().isoformat()}\n")
-                f.write(f"Archive: {self.archive_path}\n")
+                f.write(f"Archive Root: {self.archive_path}\n")
                 f.write(f"Dry Run: {self.dry_run}\n")
                 f.write("=" * 80 + "\n\n")
                 
@@ -291,26 +296,27 @@ def main():
         epilog="""
 Examples:
   # Dry run - preview operations without making changes
-  python photo_move_executor.py --input photo_plan.csv --archive ~/photo_archive --dry-run
+  python photo_move_executor.py --input photo_plan.csv --archive ~/my_photo_archive --dry-run
   
   # Live run - only add new files (skip existing)
-  python photo_move_executor.py --input photo_plan.csv --archive ~/photo_archive
+  # Files will be copied to ~/my_photo_archive/YYYY/MM/DD/
+  python photo_move_executor.py --input photo_plan.csv --archive ~/my_photo_archive
   
   # Overwrite existing files in archive
-  python photo_move_executor.py --input photo_plan.csv --archive ~/photo_archive --overwrite
+  python photo_move_executor.py --input photo_plan.csv --archive ~/my_photo_archive --overwrite
   
   # Auto-rename files that would collide
-  python photo_move_executor.py --input photo_plan.csv --archive ~/photo_archive --rename-collision
+  python photo_move_executor.py --input photo_plan.csv --archive ~/my_photo_archive --rename-collision
   
   # Verbose output with detailed logging
-  python photo_move_executor.py --input photo_plan.csv --archive ~/photo_archive --verbose
+  python photo_move_executor.py --input photo_plan.csv --archive ~/my_photo_archive --verbose
         """
     )
     
     parser.add_argument('--input', '-i', required=True,
                        help='Input CSV file from photo_dedup_scanner.py')
     parser.add_argument('--archive', '-a', required=True,
-                       help='Target archive directory (YYYY/MM/DD structure will be created)')
+                       help='Target ARCHIVE ROOT directory. YYYY/MM/DD subdirs will be created inside this.')
     parser.add_argument('--dry-run', '-n', action='store_true',
                        help='Preview operations without making changes')
     parser.add_argument('--overwrite', '-o', action='store_true',
