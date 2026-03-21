@@ -85,15 +85,14 @@ def extract_metadata_from_file(file_path: Path) -> Dict[str, Any]:
             metadata['width'], metadata['height'] = img.size
             metadata['format'] = img.format or 'UNKNOWN'
             
-            # Extract EXIF data
-            if hasattr(img, '_getexif') and img._getexif():
-                exif = img._getexif()
+            # Extract EXIF data using the modern getexif() method (works with HEIF/HEIC)
+            exif = img.getexif()
+            if exif:
                 TAGS = {
                     271: 'make',
                     272: 'model',
                     306: 'datetime',
                     36867: 'datetime_original',
-                    34853: 'gps_info'
                 }
                 exif_data = {TAGS.get(tid, tid): v for tid, v in exif.items()}
                 
@@ -106,37 +105,58 @@ def extract_metadata_from_file(file_path: Path) -> Dict[str, Any]:
                 if date_str:
                     metadata['exif_date'] = date_str
                 
-                # GPS
-                gps_info = exif_data.get('gps_info')
+                # GPS - use get_ifd to access GPS IFD (tag 0x8825 = 34853)
+                gps_info = exif.get_ifd(0x8825)
                 if gps_info:
-                    lat_ref = gps_info.get(1)
-                    lat = gps_info.get(2)
-                    lon_ref = gps_info.get(3)
-                    lon = gps_info.get(4)
+                    from PIL.ExifTags import GPSTAGS
+                    gps_data = {GPSTAGS.get(t, t): v for t, v in gps_info.items()}
+                    
+                    lat_ref = gps_data.get('GPSLatitudeRef')
+                    lat = gps_data.get('GPSLatitude')
+                    lon_ref = gps_data.get('GPSLongitudeRef')
+                    lon = gps_data.get('GPSLongitude')
                     
                     if lat and lat_ref and len(lat) >= 3:
                         try:
-                            degrees = float(lat[0]) if isinstance(lat[0], (int, float)) else float(lat[0].num) / float(lat[0].den)
-                            minutes = float(lat[1]) if isinstance(lat[1], (int, float)) else float(lat[1].num) / float(lat[1].den)
-                            seconds = float(lat[2]) if isinstance(lat[2], (int, float)) else float(lat[2].num) / float(lat[2].den)
+                            # Handle IFDRational objects which have numerator/denominator attributes
+                            def to_float(val):
+                                if isinstance(val, (int, float)):
+                                    return float(val)
+                                elif hasattr(val, 'numerator'):
+                                    return float(val.numerator) / float(val.denominator)
+                                else:
+                                    return float(val)
+                            
+                            degrees = to_float(lat[0])
+                            minutes = to_float(lat[1])
+                            seconds = to_float(lat[2])
                             decimal = degrees + (minutes / 60.0) + (seconds / 3600.0)
                             if lat_ref in ['S', 'W']:
                                 decimal = -decimal
                             metadata['gps_latitude'] = decimal
-                        except:
-                            pass
+                        except Exception as e:
+                            print(f"Warning: Could not parse GPS latitude: {e}")
                     
                     if lon and lon_ref and len(lon) >= 3:
                         try:
-                            degrees = float(lon[0]) if isinstance(lon[0], (int, float)) else float(lon[0].num) / float(lon[0].den)
-                            minutes = float(lon[1]) if isinstance(lon[1], (int, float)) else float(lon[1].num) / float(lon[1].den)
-                            seconds = float(lon[2]) if isinstance(lon[2], (int, float)) else float(lon[2].num) / float(lon[2].den)
+                            # Handle IFDRational objects which have numerator/denominator attributes
+                            def to_float(val):
+                                if isinstance(val, (int, float)):
+                                    return float(val)
+                                elif hasattr(val, 'numerator'):
+                                    return float(val.numerator) / float(val.denominator)
+                                else:
+                                    return float(val)
+                            
+                            degrees = to_float(lon[0])
+                            minutes = to_float(lon[1])
+                            seconds = to_float(lon[2])
                             decimal = degrees + (minutes / 60.0) + (seconds / 3600.0)
                             if lon_ref in ['S', 'W']:
                                 decimal = -decimal
                             metadata['gps_longitude'] = decimal
-                        except:
-                            pass
+                        except Exception as e:
+                            print(f"Warning: Could not parse GPS longitude: {e}")
     except Exception as e:
         print(f"Warning: Could not extract metadata from {file_path}: {e}")
     
