@@ -116,14 +116,14 @@ def get_target_date(filepath: str) -> datetime:
     return get_creation_date(filepath)
 
 
-def get_target_directory(filepath: str, base_archive_dir: str) -> str:
-    """Generate target YYYY/MM/DD directory path."""
+def get_target_directory(filepath: str) -> str:
+    """Generate relative YYYY/MM/DD directory path (without base archive dir)."""
     target_date = get_target_date(filepath)
     year = target_date.strftime("%Y")
     month = target_date.strftime("%m")
     day = target_date.strftime("%d")
     
-    return os.path.join(base_archive_dir, year, month, day)
+    return os.path.join(year, month, day)
 
 
 def generate_unique_filename(target_dir: str, original_filename: str, existing_files: set) -> str:
@@ -166,7 +166,7 @@ def scan_directories(directories: List[str]) -> List[str]:
     return image_files
 
 
-def process_photos(image_files: List[str], archive_dir: str, output_csv: str):
+def process_photos(image_files: List[str], output_csv: str):
     """Process all photos and generate CSV with deduplication info."""
     
     print(f"\nProcessing {len(image_files)} images...")
@@ -186,8 +186,8 @@ def process_photos(image_files: List[str], archive_dir: str, output_csv: str):
             sha256 = calculate_sha256(filepath)
             phash = calculate_perceptual_hash(filepath)
             
-            # Get target directory and filename
-            target_dir = get_target_directory(filepath, archive_dir)
+            # Get target directory (relative path YYYY/MM/DD)
+            target_dir = get_target_directory(filepath)
             
             # Store result
             results.append({
@@ -303,8 +303,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s --dirs /photos/vacation /photos/family --archive /photo_archive --output photo_plan.csv
-  %(prog)s -d ~/Pictures -a ~/photo_archive -o plan.csv
+  %(prog)s --dirs /photos/vacation /photos/family --output photo_plan.csv
+  %(prog)s -d ~/Pictures -o plan.csv
+
+Note: The generated CSV contains relative YYYY/MM/DD paths. Use photo_move_executor.py
+      with the --archive option to specify where files should be copied.
         """
     )
     
@@ -316,12 +319,6 @@ Examples:
     )
     
     parser.add_argument(
-        '--archive', '-a',
-        required=True,
-        help='Base archive directory where photos will be organized (YYYY/MM/DD structure)'
-    )
-    
-    parser.add_argument(
         '--output', '-o',
         default='photo_dedup_plan.csv',
         help='Output CSV file path (default: photo_dedup_plan.csv)'
@@ -329,14 +326,10 @@ Examples:
     
     args = parser.parse_args()
     
-    # Expand archive directory
-    archive_dir = os.path.expanduser(args.archive)
-    
     print("=" * 80)
     print("PHOTO DEDUPLICATION SCANNER")
     print("=" * 80)
     print(f"Source directories: {', '.join(args.dirs)}")
-    print(f"Archive directory:  {archive_dir}")
     print(f"Output CSV:         {args.output}")
     print(f"Supported formats:  {', '.join(SUPPORTED_EXTENSIONS)}")
     print("=" * 80)
@@ -349,7 +342,7 @@ Examples:
         sys.exit(0)
     
     # Process and generate CSV
-    process_photos(image_files, archive_dir, args.output)
+    process_photos(image_files, args.output)
     
     print("\nDone!")
 
