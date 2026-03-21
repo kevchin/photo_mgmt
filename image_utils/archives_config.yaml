@@ -1,0 +1,40 @@
+# Photo Archive Configuration
+# Define multiple photo archives with their databases and root directories
+# You can switch between these archives in the Streamlit app
+
+archives:
+  # Production archive - your main photo collection
+  - name: "Production Archive"
+    id: "prod_v1"
+    db_connection: "postgresql://user:password@localhost:5432/photo_archive"
+    root_dir: "~/Documents/photos1"
+    description: "Main production photo archive"
+    
+  # Test archive - for testing new captioning models
+  - name: "Test Llama 3 Captions"
+    id: "test_llama3"
+    db_connection: "postgresql://user:password@localhost:5432/photo_test_llama3"
+    root_dir: "~/Downloads/test3"
+    description: "Testing Llama 3 generated captions"
+    
+  # Example: Another test archive with different settings
+  - name: "Test GPT-4 Captions"
+    id: "test_gpt4"
+    db_connection: "postgresql://user:password@localhost:5432/photo_test_gpt4"
+    root_dir: "~/Downloads/test_gpt4"
+    description: "Testing GPT-4 generated captions"
+
+# Default archive to use when none is selected
+default_archive_id: "prod_v1"
+
+# Embedding model settings (shared across archives)
+embedding:
+  model_name: "all-MiniLM-L6-v2"
+  dimensions: 384
+
+# Local LLM settings for caption generation
+llm:
+  provider: "ollama"  # Options: ollama, lmstudio, openai-compatible
+  base_url: "http://localhost:11434"
+  model: "llama3.2"
+  max_tokens: 500

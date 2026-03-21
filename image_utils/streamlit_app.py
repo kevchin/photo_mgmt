@@ -6,6 +6,15 @@ import psycopg2
 import psycopg2.extras
 import streamlit as st
 from PIL import Image, ImageOps
+from pathlib import Path
+
+# Import archive configuration loader
+try:
+    from archive_config_loader import load_config, find_config_file
+    CONFIG_AVAILABLE = True
+except ImportError:
+    CONFIG_AVAILABLE = False
+    st.warning("Archive config loader not found. Install with: pip install pyyaml")
 
 
 st.set_page_config(page_title="Photo Archive Explorer", layout="wide")
@@ -539,8 +548,62 @@ def show_results_grid(rows, cols=3, thumb_width=250, max_display=50, total_count
 def main():
     st.title("Photo Archive Explorer")
 
+    # Archive selection from config file
+    archive_config = None
+    if CONFIG_AVAILABLE:
+        st.sidebar.header("Archive Selection")
+        
+        try:
+            config_path = find_config_file()
+            if config_path:
+                archive_config = load_config(config_path)
+                
+                # Create mapping of archive names to IDs
+                archive_names = archive_config.get_archive_names()
+                archive_ids = list(archive_names.keys())
+                
+                # Get default archive
+                default_idx = 0
+                for i, arch_id in enumerate(archive_ids):
+                    if arch_id == archive_config.default_archive_id:
+                        default_idx = i
+                        break
+                
+                selected_name = st.sidebar.selectbox(
+                    "Select Photo Archive",
+                    options=list(archive_names.values()),
+                    index=default_idx,
+                    help="Switch between different photo archive databases"
+                )
+                
+                # Get the selected archive ID
+                selected_id = [aid for aid, name in archive_names.items() if name == selected_name][0]
+                selected_archive = archive_config.get_archive(selected_id)
+                
+                st.sidebar.info(f"**{selected_archive.name}**\n\n{selected_archive.description}")
+                st.session_state['current_archive'] = selected_archive
+            else:
+                st.sidebar.warning("No archives config file found. Create archives_config.yaml to enable multi-archive support.")
+        except Exception as e:
+            st.sidebar.error(f"Error loading archive config: {e}")
+            archive_config = None
+    
     st.sidebar.header("Connection")
-    conn_str = st.sidebar.text_input("Postgres connection string", value=os.environ.get('IMAGE_ARCHIVE_DB', ''))
+    
+    # Use archive connection if available, otherwise use manual entry
+    if archive_config and 'current_archive' in st.session_state:
+        archive = st.session_state['current_archive']
+        conn_str = st.sidebar.text_input(
+            "Postgres connection string", 
+            value=archive.db_connection,
+            help=f"From archive: {archive.name}"
+        )
+    else:
+        conn_str = st.sidebar.text_input(
+            "Postgres connection string", 
+            value=os.environ.get('IMAGE_ARCHIVE_DB', '')
+        )
+    
     if st.sidebar.button("Connect"):
         conn = connect_db(conn_str)
         if conn:
