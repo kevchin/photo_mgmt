@@ -154,25 +154,25 @@ def main():
     #     id SERIAL PRIMARY KEY,
     #     filename VARCHAR(255),
     #     directory_path VARCHAR(255),
-    #     full_path VARCHAR(512),
-    #     sha256_hash CHAR(64),
+    #     file_path VARCHAR(512),
+    #     sha256 CHAR(64),
     #     perceptual_hash VARCHAR(20),
     #     created_at TIMESTAMP
     # );
     
     print("\n-- Check if exact file path already exists:")
-    print(f"SELECT id, sha256_hash FROM images WHERE full_path = '{escaped_full_path}';")
+    print(f"SELECT id, sha256 FROM images WHERE file_path = '{escaped_full_path}';")
     
     print("\n-- Check if SHA256 hash exists (exact duplicate anywhere):")
-    print(f"SELECT id, full_path FROM images WHERE sha256_hash = '{sha256}';")
+    print(f"SELECT id, file_path FROM images WHERE sha256 = '{sha256}';")
     
     print("\n-- Check for perceptually similar images (may be resized/recompressed):")
-    print(f"SELECT id, full_path, perceptual_hash FROM images WHERE perceptual_hash = '{phash}';")
+    print(f"SELECT id, file_path, perceptual_hash FROM images WHERE perceptual_hash = '{phash}';")
     
     print("\n-- Combined check: verify both path and hash uniqueness:")
     print(f"SELECT ")
-    print(f"    EXISTS(SELECT 1 FROM images WHERE full_path = '{escaped_full_path}') AS path_exists,")
-    print(f"    EXISTS(SELECT 1 FROM images WHERE sha256_hash = '{sha256}') AS sha256_exists,")
+    print(f"    EXISTS(SELECT 1 FROM images WHERE file_path = '{escaped_full_path}') AS path_exists,")
+    print(f"    EXISTS(SELECT 1 FROM images WHERE sha256 = '{sha256}') AS sha256_exists,")
     print(f"    EXISTS(SELECT 1 FROM images WHERE perceptual_hash = '{phash}') AS phash_exists;")
     
     print("\n" + "-" * 60)
@@ -183,13 +183,13 @@ def main():
 sha256_value = "{sha256}"
 phash_value = "{phash}"
 directory_path = "{date_path}"
-full_path = "{date_path}/{filename}"
+file_path = "{date_path}/{filename}"
 
 # Example with psycopg2:
 cursor.execute(\"\"\"
     SELECT id FROM images 
-    WHERE full_path = %s OR sha256_hash = %s
-\"\"\", (full_path, sha256_value))
+    WHERE file_path = %s OR sha256 = %s
+\"\"\", (file_path, sha256_value))
 """)
     
     print("\n" + "=" * 60)
