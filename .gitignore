@@ -1,1 +1,1 @@
-(image_hash_checker.py is a source file, so no .gitignore rules needed)
+(image_hash_checker.py contains source code and test_image.jpg is an image file, both should not be ignored)
