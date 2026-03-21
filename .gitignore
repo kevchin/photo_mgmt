@@ -1,1 +1,1 @@
-(image_metadata_extractor.py is a source file, so no need to add anything to .gitignore)
+Nothing should be ignored based on the provided file changes. The only modified file is a Python source file (`test_ingest_utils/heic_metadata_extractor.py`), which should not be added to .gitignore.

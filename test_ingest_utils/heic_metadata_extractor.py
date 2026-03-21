@@ -47,10 +47,43 @@ def _parse_gps_info(gps_info: dict) -> Dict[str, Any]:
     def convert_to_degrees(value):
         """Convert GPS coordinates to decimal degrees."""
         try:
-            d = float(value[0][0]) / float(value[0][1])
-            m = float(value[1][0]) / float(value[1][1])
-            s = float(value[2][0]) / float(value[2][1])
-            return d + (m / 60.0) + (s / 3600.0)
+            # Handle both nested tuples ((d, m, s) where each is (num, den)) 
+            # and flat tuples with IFDRational objects (d, m, s)
+            if len(value) == 3:
+                # Check if it's a flat tuple of IFDRational or float values
+                d_val = value[0]
+                m_val = value[1]
+                s_val = value[2]
+                
+                # Convert IFDRational to float if needed
+                if hasattr(d_val, 'numerator'):
+                    d = float(d_val)
+                elif isinstance(d_val, tuple):
+                    d = float(d_val[0]) / float(d_val[1])
+                else:
+                    d = float(d_val)
+                    
+                if hasattr(m_val, 'numerator'):
+                    m = float(m_val)
+                elif isinstance(m_val, tuple):
+                    m = float(m_val[0]) / float(m_val[1])
+                else:
+                    m = float(m_val)
+                    
+                if hasattr(s_val, 'numerator'):
+                    s = float(s_val)
+                elif isinstance(s_val, tuple):
+                    s = float(s_val[0]) / float(s_val[1])
+                else:
+                    s = float(s_val)
+                    
+                return d + (m / 60.0) + (s / 3600.0)
+            else:
+                # Fallback for nested tuple format
+                d = float(value[0][0]) / float(value[0][1])
+                m = float(value[1][0]) / float(value[1][1])
+                s = float(value[2][0]) / float(value[2][1])
+                return d + (m / 60.0) + (s / 3600.0)
         except (ZeroDivisionError, IndexError, TypeError):
             return None
     
@@ -242,38 +275,38 @@ def extract_heic_metadata(filepath: str) -> Dict[str, Any]:
             metadata['mode'] = img.mode
             metadata['orientation'] = 'Portrait' if img.height > img.width else 'Landscape'
             
-            # Try to get EXIF data
-            if hasattr(img, '_getexif'):
-                try:
-                    exif_data = img._getexif()
-                    if exif_data:
-                        for tag_id, value in exif_data.items():
-                            tag_name = TAGS.get(tag_id, tag_id)
-                            
-                            # Handle GPS data specially
-                            if tag_name == 'GPSInfo':
-                                metadata['gps'] = _parse_gps_info(value)
-                            # Handle datetime fields
-                            elif tag_name in ['DateTimeOriginal', 'DateTimeDigitized', 'DateTime']:
-                                formatted = _format_datetime(str(value))
-                                if tag_name == 'DateTimeOriginal' and not metadata.get('creation_date'):
-                                    metadata['creation_date'] = formatted
-                                metadata['exif'][tag_name] = formatted
-                            else:
-                                # Convert bytes to string if needed
-                                if isinstance(value, bytes):
-                                    try:
-                                        value = value.decode('utf-8', errors='ignore')
-                                    except Exception:
-                                        value = str(value)
-                                metadata['exif'][tag_name] = str(value)
+            # Try to get EXIF data using the modern getexif() method
+            try:
+                exif = img.getexif()
+                if exif:
+                    for tag_id, value in exif.items():
+                        tag_name = TAGS.get(tag_id, tag_id)
                         
-                        # Extract camera info and settings
-                        metadata['camera'] = _get_camera_info(metadata['exif'])
-                        metadata['settings'] = _get_photo_settings(metadata['exif'])
-                        
-                except Exception as e:
-                    metadata['exif_error'] = f"EXIF extraction error: {str(e)}"
+                        # Handle GPS data specially - access via GPS IFD
+                        if tag_id == 0x8825:  # GPSInfo IFD tag
+                            gps_info = exif.get_ifd(0x8825)
+                            metadata['gps'] = _parse_gps_info(gps_info)
+                        # Handle datetime fields
+                        elif tag_name in ['DateTimeOriginal', 'DateTimeDigitized', 'DateTime']:
+                            formatted = _format_datetime(str(value))
+                            if tag_name == 'DateTimeOriginal' and not metadata.get('creation_date'):
+                                metadata['creation_date'] = formatted
+                            metadata['exif'][tag_name] = formatted
+                        else:
+                            # Convert bytes to string if needed
+                            if isinstance(value, bytes):
+                                try:
+                                    value = value.decode('utf-8', errors='ignore')
+                                except Exception:
+                                    value = str(value)
+                            metadata['exif'][tag_name] = str(value)
+                    
+                    # Extract camera info and settings
+                    metadata['camera'] = _get_camera_info(metadata['exif'])
+                    metadata['settings'] = _get_photo_settings(metadata['exif'])
+                    
+            except Exception as e:
+                metadata['exif_error'] = f"EXIF extraction error: {str(e)}"
                     
     except Exception as e:
         metadata['error'] = f"Error processing file: {str(e)}"
