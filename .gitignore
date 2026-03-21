@@ -1,10 +1,1 @@
-```
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Image utils specific
-image_utils/__pycache__/
-```
+Nothing should be ignored based on the provided file changes, as only a Python source file (`image_utils/incremental_ingest.py`) was modified without any build artifacts, dependencies, or temporary files present in the change list.
