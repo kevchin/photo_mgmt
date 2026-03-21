@@ -1,7 +1,1 @@
-```
-# Image files (based on detected changes)
-*.jpg
-*.jpeg
-*.heif
-*.heic
-```
+(image_hash_checker.py is a source file, so no .gitignore rules needed)
