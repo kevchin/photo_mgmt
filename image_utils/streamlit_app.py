@@ -293,7 +293,171 @@ def query_metadata_location(lat, lon, radius_km=5.0, limit=100):
         return []
 
 
-def show_results_grid(rows, cols=3, thumb_width=250):
+def query_filename_path(search_text, limit=500):
+    """Search by substring match in filename OR file path.
+    
+    Returns all matching rows - caller should handle limiting display.
+    """
+    conn_str = st.session_state.get('conn_str')
+    if not conn_str:
+        st.error('No connection string stored; connect first')
+        return []
+    
+    pattern = f"%{search_text}%"
+    sql = """
+        SELECT id, file_path, file_name, caption, gps_latitude, gps_longitude, 
+               width, height, format, orientation_correction
+        FROM images 
+        WHERE file_name ILIKE %s OR file_path ILIKE %s 
+        ORDER BY date_created DESC
+        LIMIT %s
+    """
+    try:
+        with psycopg2.connect(conn_str) as local_conn:
+            local_conn.autocommit = True
+            with local_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(sql, (pattern, pattern, limit))
+                return cur.fetchall()
+    except Exception as e:
+        msg = str(e)
+        if 'relation "images" does not exist' in msg:
+            st.error('Database schema not initialized (images table missing). Click "Initialize schema" in the sidebar to create it.')
+            st.info('Or run:')
+            st.code(f"python image_database.py init --db \"{conn_str}\"")
+            if st.sidebar.button('Initialize schema'):
+                init_schema(conn_str)
+        elif 'current transaction is aborted' in msg:
+            try:
+                prev = st.session_state.pop('conn', None)
+                if prev:
+                    try:
+                        prev.close()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            st.error('A previous DB error left a transaction aborted; connection reset. Reconnect and try again.')
+        else:
+            st.error(f"Filename/path query failed: {e}")
+        return []
+
+
+def query_combined_search(filename_text, caption_text, use_semantic=False, model_name=None, filename_limit=500, caption_limit=100):
+    """Combined search: filter by filename/path AND caption (text or semantic).
+    
+    First filters by filename/path, then filters those results by caption.
+    Returns the intersection of both searches.
+    """
+    conn_str = st.session_state.get('conn_str')
+    if not conn_str:
+        st.error('No connection string stored; connect first')
+        return []
+    
+    # First get filename/path matches
+    filename_pattern = f"%{filename_text}%" if filename_text else None
+    
+    if filename_pattern:
+        # Get IDs that match filename/path
+        sql_filename = """
+            SELECT id FROM images 
+            WHERE file_name ILIKE %s OR file_path ILIKE %s
+        """
+        try:
+            with psycopg2.connect(conn_str) as local_conn:
+                local_conn.autocommit = True
+                with local_conn.cursor() as cur:
+                    cur.execute(sql_filename, (filename_pattern, filename_pattern))
+                    filename_ids = set(row[0] for row in cur.fetchall())
+        except Exception as e:
+            st.error(f"Filename query failed: {e}")
+            return []
+    else:
+        # No filename filter - start with all IDs (will be limited by caption search)
+        sql_all_ids = "SELECT id FROM images ORDER BY date_created DESC LIMIT %s"
+        try:
+            with psycopg2.connect(conn_str) as local_conn:
+                local_conn.autocommit = True
+                with local_conn.cursor() as cur:
+                    cur.execute(sql_all_ids, (filename_limit,))
+                    filename_ids = set(row[0] for row in cur.fetchall())
+        except Exception as e:
+            st.error(f"ID query failed: {e}")
+            return []
+    
+    if not filename_ids:
+        return []
+    
+    # Now filter by caption
+    if use_semantic and caption_text:
+        # Semantic search on caption
+        vec = embed_query_local(model_name, caption_text)
+        if not vec:
+            return []
+        
+        emb_str = '[' + ','.join(map(str, vec)) + ']'
+        ids_list = ','.join(str(id) for id in filename_ids)
+        sql_semantic = f"""
+            SELECT id, file_path, file_name, caption, gps_latitude, gps_longitude,
+                   width, height, format, orientation_correction,
+                   1 - (caption_embedding <=> %s::vector) as similarity_score
+            FROM images
+            WHERE id IN ({ids_list}) AND caption_embedding IS NOT NULL
+            ORDER BY caption_embedding <=> %s::vector
+            LIMIT %s
+        """
+        try:
+            with psycopg2.connect(conn_str) as local_conn:
+                local_conn.autocommit = True
+                with local_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute(sql_semantic, (emb_str, emb_str, caption_limit))
+                    return cur.fetchall()
+        except Exception as e:
+            st.error(f"Semantic query failed: {e}")
+            return []
+    elif caption_text:
+        # Text search on caption
+        caption_pattern = f"%{caption_text}%"
+        ids_list = ','.join(str(id) for id in filename_ids)
+        sql_text = f"""
+            SELECT id, file_path, file_name, caption, gps_latitude, gps_longitude,
+                   width, height, format, orientation_correction
+            FROM images
+            WHERE id IN ({ids_list}) AND caption ILIKE %s
+            ORDER BY date_created DESC
+            LIMIT %s
+        """
+        try:
+            with psycopg2.connect(conn_str) as local_conn:
+                local_conn.autocommit = True
+                with local_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute(sql_text, (caption_pattern, caption_limit))
+                    return cur.fetchall()
+        except Exception as e:
+            st.error(f"Caption text query failed: {e}")
+            return []
+    else:
+        # Only filename filter - return those results
+        ids_list = ','.join(str(id) for id in filename_ids)
+        sql_only_filename = f"""
+            SELECT id, file_path, file_name, caption, gps_latitude, gps_longitude,
+                   width, height, format, orientation_correction
+            FROM images
+            WHERE id IN ({ids_list})
+            ORDER BY date_created DESC
+            LIMIT %s
+        """
+        try:
+            with psycopg2.connect(conn_str) as local_conn:
+                local_conn.autocommit = True
+                with local_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute(sql_only_filename, (caption_limit,))
+                    return cur.fetchall()
+        except Exception as e:
+            st.error(f"Final query failed: {e}")
+            return []
+
+
+def show_results_grid(rows, cols=3, thumb_width=250, max_display=50, total_count=None):
     """Display results in a grid with images and clickable filename links.
     
     Each image card shows:
@@ -304,14 +468,25 @@ def show_results_grid(rows, cols=3, thumb_width=250):
     - Rotation indicator if correction is needed
     - Caption (full caption visible on hover and in expandable section)
     - GPS coordinates if available
+    
+    If total_count > max_display, only show max_display items and warn user.
     """
     if not rows:
         st.info("No results")
         return
     
-    for i in range(0, len(rows), cols):
+    actual_total = total_count if total_count is not None else len(rows)
+    
+    # Warn if too many results
+    if actual_total > max_display:
+        st.warning(f"⚠️ Found **{actual_total}** matching files, but showing only the first **{max_display}**. Please refine your search to see more specific results.")
+        display_rows = rows[:max_display]
+    else:
+        display_rows = rows
+    
+    for i in range(0, len(display_rows), cols):
         cols_ui = st.columns(cols)
-        for j, row in enumerate(rows[i:i+cols]):
+        for j, row in enumerate(display_rows[i:i+cols]):
             with cols_ui[j]:
                 path = row.get('file_path') or row.get('path')
                 file_name = row.get('file_name') or os.path.basename(path) if path else "Unknown"
@@ -381,13 +556,53 @@ def main():
 
     st.sidebar.markdown("---")
     st.sidebar.header("Search")
-    mode = st.sidebar.selectbox("Search mode", ["Text ILIKE", "pgvector (requires embeddings)"])
+    
+    # Smart search section with filename/path and caption search
+    st.sidebar.subheader("Smart Search (filename + caption)")
+    filename_query = st.sidebar.text_input("Filename/Path search", placeholder="e.g., 2016/08 or andrew", key="smart_filename")
+    caption_query = st.sidebar.text_input("Caption search", placeholder="e.g., birthday party with kids", key="smart_caption")
+    use_semantic = st.sidebar.checkbox("Use semantic search for caption", value=False, help="Enable semantic similarity search for captions (requires sentence-transformers)", key="smart_semantic")
+    
+    smart_limit = st.sidebar.slider("Max results to display", min_value=1, max_value=200, value=50, key="smart_limit")
+    smart_filename_limit = st.sidebar.slider("Max filename matches to consider", min_value=10, max_value=2000, value=500, help="How many filename/path matches to fetch before filtering by caption", key="smart_filename_limit")
+    
+    if st.sidebar.button("🔍 Run Smart Search"):
+        if not filename_query and not caption_query:
+            st.warning("Enter at least a filename/path or caption query")
+        else:
+            model_name = "all-MiniLM-L6-v2" if use_semantic else None
+            rows = query_combined_search(
+                filename_text=filename_query,
+                caption_text=caption_query,
+                use_semantic=use_semantic,
+                model_name=model_name,
+                filename_limit=smart_filename_limit,
+                caption_limit=smart_limit
+            )
+            # We don't know the exact total count without another query, so pass None
+            # The function will show warning if results hit the limit
+            show_results_grid(rows, max_display=smart_limit, total_count=None)
+    
+    # Simple filename-only search option
+    st.sidebar.subheader("Filename/Path Only Search")
+    simple_filename_query = st.sidebar.text_input("Search filename or path", placeholder="e.g., 2016/08 or andrew", key="simple_filename_input")
+    simple_filename_limit = st.sidebar.slider("Results limit", min_value=1, max_value=500, value=100, key="simple_filename_slider")
+    
+    if st.sidebar.button("📁 Search Filename/Path"):
+        if not simple_filename_query:
+            st.warning("Enter a filename or path substring")
+        else:
+            rows = query_filename_path(simple_filename_query, limit=simple_filename_limit)
+            show_results_grid(rows, max_display=simple_filename_limit, total_count=None)
+    
+    st.sidebar.markdown("---")
+    mode = st.sidebar.selectbox("Legacy search mode", ["Text ILIKE", "pgvector (requires embeddings)"], index=0, key="legacy_mode")
     if mode == 'pgvector (requires embeddings)':
-        emb_provider = st.sidebar.selectbox("Embedding provider", ["local-sentence-transformers", "none"])
-        model_name = st.sidebar.text_input("Local model (sentence-transformers)", value="all-MiniLM-L6-v2")
+        emb_provider = st.sidebar.selectbox("Embedding provider", ["local-sentence-transformers", "none"], key="legacy_emb")
+        model_name = st.sidebar.text_input("Local model (sentence-transformers)", value="all-MiniLM-L6-v2", key="legacy_model")
 
-    q = st.sidebar.text_input("Caption query")
-    limit = st.sidebar.slider("Results", min_value=1, max_value=200, value=24)
+    q = st.sidebar.text_input("Legacy caption query", key="legacy_caption")
+    limit = st.sidebar.slider("Legacy results limit", min_value=1, max_value=200, value=24, key="legacy_limit")
 
     st.header("Explore")
     if not conn:
@@ -401,13 +616,13 @@ def main():
             else:
                 if mode == 'Text ILIKE':
                     rows = query_caption_text(q, limit=limit)
-                    show_results_grid(rows)
+                    show_results_grid(rows, max_display=limit)
                 else:
                     if emb_provider == 'local-sentence-transformers':
                         vec = embed_query_local(model_name, q)
                         if vec:
                             rows = query_caption_pgvector(vec, limit=limit)
-                            show_results_grid(rows)
+                            show_results_grid(rows, max_display=limit)
                     else:
                         st.warning('No embedding provider selected')
 
@@ -420,7 +635,7 @@ def main():
                 st.warning("Enter latitude and longitude")
             else:
                 rows = query_metadata_location(gps_lat, gps_lon, radius_km=radius, limit=limit)
-                show_results_grid(rows)
+                show_results_grid(rows, max_display=limit)
 
 
 if __name__ == '__main__':
