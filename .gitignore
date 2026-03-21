@@ -1,1 +1,10 @@
-(image_utils/simple_caption.py is a source file, and there are no build artifacts, dependencies, or temp files in the changes)
+```
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Image utils specific
+image_utils/__pycache__/
+```

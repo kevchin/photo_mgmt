@@ -348,12 +348,15 @@ def initialize_caption_generator(use_local: bool = False, api_key: Optional[str]
     """Initialize caption generator (either local or OpenAI)"""
     if use_local:
         try:
-            from generate_captions_local import CaptionGeneratorLocal
+            from generate_captions_local import FlorenceCaptionGenerator as CaptionGeneratorLocal
             print(f"Using local caption generator (Florence-2)")
             return CaptionGeneratorLocal(model="microsoft/Florence-2-base")
         except ImportError as e:
             print(f"Warning: Local caption generator not available: {e}")
             print("Install with: pip install torch transformers")
+            return None
+        except Exception as e:
+            print(f"Warning: Failed to initialize local caption generator: {e}")
             return None
     else:
         if not api_key:
