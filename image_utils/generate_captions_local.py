@@ -108,7 +108,8 @@ class FlorenceCaptionGenerator:
     ]
     
     def __init__(self, model_name: str = "microsoft/Florence-2-base", 
-                 device: str = "auto", trust_remote_code: bool = True):
+                 device: str = "auto", trust_remote_code: bool = True,
+                 caption_detail: str = "basic"):
         """
         Initialize Florence-2 caption generator
         
@@ -120,12 +121,24 @@ class FlorenceCaptionGenerator:
                        - Local path to downloaded model
             device: Device to run on ('cuda', 'cpu', 'auto')
             trust_remote_code: Whether to trust remote code (required for Florence-2)
+            caption_detail: Detail level for captions: 'basic', 'detailed', or 'very_detailed'
         """
         if not TRANSFORMERS_AVAILABLE:
             raise RuntimeError("transformers package not installed")
         
         self.model_name = model_name
         self.device = device
+        self.caption_detail = caption_detail
+        
+        # Set task based on detail level
+        if caption_detail == "basic":
+            self.default_task = "<CAPTION>"
+        elif caption_detail == "detailed":
+            self.default_task = "<DETAILED_CAPTION>"
+        elif caption_detail == "very_detailed":
+            self.default_task = "<MORE_DETAILED_CAPTION>"
+        else:
+            self.default_task = "<DETAILED_CAPTION>"
         
         print(f"Loading Florence-2 model: {model_name}...")
         print("(This may take a few minutes on first run)")
@@ -157,7 +170,7 @@ class FlorenceCaptionGenerator:
         print(f"Model loaded successfully on {self.device}")
     
     def generate_caption(self, image_path: str, 
-                        task: str = "<DETAILED_CAPTION>",
+                        task: Optional[str] = None,
                         max_tokens: int = 256,
                         correct_orientation: bool = True) -> Optional[str]:
         """
@@ -165,7 +178,8 @@ class FlorenceCaptionGenerator:
         
         Args:
             image_path: Path to the image file
-            task: Florence-2 task prompt (default: detailed caption)
+            task: Florence-2 task prompt (default: uses caption_detail setting from __init__)
+                  Options: '<CAPTION>', '<DETAILED_CAPTION>', '<MORE_DETAILED_CAPTION>', etc.
             max_tokens: Maximum tokens to generate
             correct_orientation: Whether to auto-correct orientation before processing
             
@@ -173,6 +187,10 @@ class FlorenceCaptionGenerator:
             Generated caption text, or None on error
         """
         try:
+            # Use default task if not specified
+            if task is None:
+                task = self.default_task
+            
             # Prepare image with orientation correction
             processed_image_path = image_path
             was_oriented = False

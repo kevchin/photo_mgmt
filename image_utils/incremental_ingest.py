@@ -365,13 +365,15 @@ def process_photo(file_path: Path, archive_dir: Path, dry_run: bool = False) -> 
         return None, f"ERROR: {str(e)}"
 
 
-def initialize_caption_generator(use_local: bool = False, api_key: Optional[str] = None, model: str = "gpt-4o"):
+def initialize_caption_generator(use_local: bool = False, api_key: Optional[str] = None, 
+                                  model: str = "gpt-4o", local_model_name: str = "microsoft/Florence-2-base",
+                                  caption_detail: str = "basic"):
     """Initialize caption generator (either local or OpenAI)"""
     if use_local:
         try:
             from generate_captions_local import FlorenceCaptionGenerator as CaptionGeneratorLocal
-            print(f"Using local caption generator (Florence-2)")
-            return CaptionGeneratorLocal(model_name="microsoft/Florence-2-base")
+            print(f"Using local caption generator (Florence-2: {local_model_name})")
+            return CaptionGeneratorLocal(model_name=local_model_name, caption_detail=caption_detail)
         except ImportError as e:
             print(f"Warning: Local caption generator not available: {e}")
             print("Install with: pip install torch transformers")
@@ -416,6 +418,8 @@ def incremental_ingest(
     use_local_captions: bool = False,
     caption_api_key: Optional[str] = None,
     caption_model: str = "gpt-4o",
+    local_model_name: str = "microsoft/Florence-2-base",
+    caption_detail: str = "basic",
     dry_run: bool = False,
     batch_size: int = 50
 ) -> Dict:
@@ -429,7 +433,9 @@ def incremental_ingest(
         generate_captions: Whether to generate AI captions
         use_local_captions: Use local Florence-2 model instead of OpenAI
         caption_api_key: OpenAI API key (if not using local)
-        caption_model: Model name for caption generation
+        caption_model: Model name for caption generation (OpenAI)
+        local_model_name: Model name for local Florence-2 (e.g., microsoft/Florence-2-large)
+        caption_detail: Detail level for captions: basic, detailed, or very_detailed
         dry_run: If True, don't make any changes
         batch_size: Number of photos to process before committing to database
     
@@ -472,7 +478,9 @@ def incremental_ingest(
         caption_gen = initialize_caption_generator(
             use_local=use_local_captions,
             api_key=caption_api_key,
-            model=caption_model
+            model=caption_model,
+            local_model_name=local_model_name,
+            caption_detail=caption_detail
         )
     print()
     
@@ -632,6 +640,11 @@ Examples:
                         help='OpenAI API key for caption generation (if not using local)')
     parser.add_argument('--caption-model', type=str, default='gpt-4o',
                         help='OpenAI model for caption generation (default: gpt-4o)')
+    parser.add_argument('--local-model-name', type=str, default='microsoft/Florence-2-base',
+                        help='Local Florence-2 model name (e.g., microsoft/Florence-2-large)')
+    parser.add_argument('--caption-detail', type=str, default='basic',
+                        choices=['basic', 'detailed', 'very_detailed'],
+                        help='Caption detail level: basic (fast), detailed (2-3 sentences), or very_detailed')
     
     parser.add_argument('--dry-run', action='store_true',
                         help='Preview what would be done without making changes')
@@ -649,6 +662,8 @@ Examples:
         use_local_captions=args.local_captions,
         caption_api_key=args.openai_api_key,
         caption_model=args.caption_model,
+        local_model_name=args.local_model_name,
+        caption_detail=args.caption_detail,
         dry_run=args.dry_run,
         batch_size=args.batch_size
     )
