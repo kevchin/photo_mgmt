@@ -37,11 +37,17 @@ def _parse_gps_info(gps_info: dict) -> Dict[str, Any]:
     def convert_to_degrees(value):
         """Convert GPS coordinates to decimal degrees."""
         try:
-            d = float(value[0][0]) / float(value[0][1])
-            m = float(value[1][0]) / float(value[1][1])
-            s = float(value[2][0]) / float(value[2][1])
+            # Handle IFDRational objects (PIL.TiffImagePlugin.IFDRational)
+            def get_float(val):
+                if hasattr(val, 'numerator') and hasattr(val, 'denominator'):
+                    return float(val.numerator) / float(val.denominator)
+                return float(val)
+            
+            d = get_float(value[0])
+            m = get_float(value[1])
+            s = get_float(value[2])
             return d + (m / 60.0) + (s / 3600.0)
-        except (ZeroDivisionError, IndexError, TypeError):
+        except (ZeroDivisionError, IndexError, TypeError, AttributeError):
             return None
     
     latitude = None
@@ -128,30 +134,31 @@ def extract_metadata_pillow(filepath: str) -> Dict[str, Any]:
             metadata['modification_date'] = datetime.fromtimestamp(stat.st_mtime).isoformat()
             metadata['creation_date'] = datetime.fromtimestamp(stat.st_ctime).isoformat()
             
-            # Extract EXIF data (not available for all formats like HEIC)
-            if hasattr(img, '_getexif'):
-                exif_data = img._getexif()
-                if exif_data:
-                    for tag_id, value in exif_data.items():
-                        tag_name = TAGS.get(tag_id, tag_id)
-                        
-                        # Handle GPS data specially
-                        if tag_name == 'GPSInfo':
-                            metadata['gps'] = _parse_gps_info(value)
-                        # Handle datetime fields
-                        elif tag_name in ['DateTimeOriginal', 'DateTimeDigitized', 'DateTime']:
-                            formatted = _format_datetime(str(value))
-                            if tag_name == 'DateTimeOriginal' and not metadata.get('creation_date'):
-                                metadata['creation_date'] = formatted
-                            metadata['exif'][tag_name] = formatted
-                        else:
-                            # Convert bytes to string if needed
-                            if isinstance(value, bytes):
-                                try:
-                                    value = value.decode('utf-8', errors='ignore')
-                                except Exception:
-                                    value = str(value)
-                            metadata['exif'][tag_name] = str(value)
+            # Extract EXIF data using modern getexif() method (works with HEIC/HEIF)
+            exif = img.getexif()
+            if exif:
+                for tag_id, value in exif.items():
+                    tag_name = TAGS.get(tag_id, tag_id)
+                    
+                    # Handle GPS data specially - use get_ifd to access GPS IFD sub-directory
+                    if tag_name == 'GPSInfo':
+                        gps_info = exif.get_ifd(0x8825)
+                        if gps_info:
+                            metadata['gps'] = _parse_gps_info(gps_info)
+                    # Handle datetime fields
+                    elif tag_name in ['DateTimeOriginal', 'DateTimeDigitized', 'DateTime']:
+                        formatted = _format_datetime(str(value))
+                        if tag_name == 'DateTimeOriginal' and not metadata.get('creation_date'):
+                            metadata['creation_date'] = formatted
+                        metadata['exif'][tag_name] = formatted
+                    else:
+                        # Convert bytes to string if needed
+                        if isinstance(value, bytes):
+                            try:
+                                value = value.decode('utf-8', errors='ignore')
+                            except Exception:
+                                value = str(value)
+                        metadata['exif'][tag_name] = str(value)
                         
     except Exception as e:
         metadata['error'] = f"Pillow error: {str(e)}"
