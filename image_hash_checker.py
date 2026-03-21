@@ -26,6 +26,14 @@ from PIL import Image
 from PIL.ExifTags import TAGS
 import imagehash
 
+# Try to import pillow-heif for HEIC/HEIF support
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+    HEIF_SUPPORT_AVAILABLE = True
+except ImportError:
+    HEIF_SUPPORT_AVAILABLE = False
+
 
 def compute_sha256(filepath: str) -> str:
     """Compute SHA256 hash of a file."""
@@ -38,12 +46,20 @@ def compute_sha256(filepath: str) -> str:
 
 def compute_perceptual_hash(filepath: str) -> str:
     """Compute perceptual hash (pHash) of an image."""
-    with Image.open(filepath) as img:
-        # Convert to RGB if necessary (handles RGBA, P mode, etc.)
-        if img.mode != 'RGB':
-            img = img.convert('RGB')
-        phash = imagehash.phash(img)
-        return str(phash)
+    try:
+        with Image.open(filepath) as img:
+            # Convert to RGB if necessary (handles RGBA, P mode, etc.)
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            phash = imagehash.phash(img)
+            return str(phash)
+    except Exception as e:
+        if not HEIF_SUPPORT_AVAILABLE and filepath.lower().endswith(('.heic', '.heif')):
+            raise RuntimeError(
+                f"Cannot process HEIC/HEIF file: {filepath}. "
+                "Install pillow-heif with: pip install pillow-heif"
+            ) from e
+        raise
 
 
 def get_creation_date(filepath: str) -> datetime:
