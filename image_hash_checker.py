@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PIL import Image
-from PIL.ExifTags import TAGS
+from PIL.ExifTags import TAGS, GPSTAGS
 import imagehash
 
 # Try to import pillow-heif for HEIC/HEIF support
@@ -80,15 +80,11 @@ def get_creation_date_and_gps(filepath: str) -> tuple[datetime, tuple[float, flo
     
     try:
         with Image.open(filepath) as img:
-            exif_data = img._getexif()
+            exif_data = img.getexif()
             if exif_data:
-                # Map tag IDs to names
-                exif = {TAGS.get(tag_id, tag_id): value 
-                        for tag_id, value in exif_data.items()}
-                
                 # Try DateTimeOriginal first (when photo was taken)
-                if 'DateTimeOriginal' in exif:
-                    date_str = exif['DateTimeOriginal']
+                if 'DateTimeOriginal' in exif_data:
+                    date_str = exif_data['DateTimeOriginal']
                     # Format: "YYYY:MM:DD HH:MM:SS"
                     try:
                         creation_date = datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
@@ -96,18 +92,30 @@ def get_creation_date_and_gps(filepath: str) -> tuple[datetime, tuple[float, flo
                         pass
                 
                 # Try DateTime as fallback
-                if creation_date is None and 'DateTime' in exif:
-                    date_str = exif['DateTime']
+                if creation_date is None and 'DateTime' in exif_data:
+                    date_str = exif_data['DateTime']
                     try:
                         creation_date = datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
                     except ValueError:
                         pass
                 
-                # Extract GPS coordinates if available
-                if 'GPSInfo' in exif:
-                    gps_info = exif['GPSInfo']
-                    gps_coords = extract_gps_coordinates(gps_info)
+                # Extract GPS coordinates using IFD (same as working sample)
+                # GPS info is typically stored under tag ID 34853 (0x8825)
+                gps_info = exif_data.get_ifd(0x8825)
+                if gps_info:
+                    gps_data = {GPSTAGS.get(t, t): v for t, v in gps_info.items()}
                     
+                    if 'GPSLatitude' in gps_data and 'GPSLongitude' in gps_data:
+                        lat = get_decimal_from_dms(
+                            gps_data['GPSLatitude'], 
+                            gps_data.get('GPSLatitudeRef', 'N')
+                        )
+                        lon = get_decimal_from_dms(
+                            gps_data['GPSLongitude'], 
+                            gps_data.get('GPSLongitudeRef', 'E')
+                        )
+                        gps_coords = (lat, lon)
+                        
     except Exception:
         # If we can't read EXIF, fall through to file stats
         pass
@@ -121,46 +129,35 @@ def get_creation_date_and_gps(filepath: str) -> tuple[datetime, tuple[float, flo
     return creation_date, gps_coords
 
 
-def extract_gps_coordinates(gps_info: dict) -> tuple[float, float] | None:
+def get_decimal_from_dms(dms, ref):
     """
-    Extract latitude and longitude from GPSInfo EXIF data.
+    Convert DMS (degrees, minutes, seconds) to decimal degrees.
     
     Args:
-        gps_info: Dictionary containing GPS EXIF tags
+        dms: Tuple/list of (degrees, minutes, seconds). 
+             Can be either:
+             - Flat tuple/list of floats: (40.0, 26.0, 46.0)
+             - Nested tuple/list of rationals: ((40, 1), (26, 1), (46, 1))
+        ref: Reference direction ('N', 'S', 'E', 'W')
         
     Returns:
-        tuple: (latitude, longitude) or None if extraction fails
+        float: Decimal degrees (negative for S/W)
     """
-    try:
-        # GPS tags reference: https://exiftool.org/TagNames/GPS.html
-        lat_ref = gps_info.get(1, 'N')  # GPSLatitudeRef
-        lat = gps_info.get(2)           # GPSLatitude
-        lon_ref = gps_info.get(3, 'E')  # GPSLongitudeRef
-        lon = gps_info.get(4)           # GPSLongitude
-        
-        if lat is None or lon is None:
-            return None
-        
-        def convert_to_degrees(value):
-            """Convert GPS coordinates from [deg, min, sec] to decimal degrees."""
-            d = float(value[0][0]) / float(value[0][1])
-            m = float(value[1][0]) / float(value[1][1])
-            s = float(value[2][0]) / float(value[2][1])
-            return d + (m / 60.0) + (s / 3600.0)
-        
-        lat_decimal = convert_to_degrees(lat)
-        lon_decimal = convert_to_degrees(lon)
-        
-        # Apply reference direction (N/S, E/W)
-        if lat_ref == 'S':
-            lat_decimal = -lat_decimal
-        if lon_ref == 'W':
-            lon_decimal = -lon_decimal
-        
-        return (lat_decimal, lon_decimal)
-        
-    except Exception:
-        return None
+    def to_float(val):
+        """Convert a value to float, handling rational tuples."""
+        if isinstance(val, (tuple, list)) and len(val) == 2:
+            # It's a rational (numerator, denominator)
+            return float(val[0]) / float(val[1])
+        return float(val)
+    
+    degrees = to_float(dms[0])
+    minutes = to_float(dms[1]) / 60.0
+    seconds = to_float(dms[2]) / 3600.0
+    decimal = degrees + minutes + seconds
+    
+    if ref in ['S', 'W']:
+        return -decimal
+    return decimal
 
 
 def format_date_path(date: datetime) -> str:
