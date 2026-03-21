@@ -622,7 +622,7 @@ def main():
     
     # Smart search section with filename/path and caption search
     st.sidebar.subheader("Smart Search (filename + caption)")
-    filename_query = st.sidebar.text_input("Filename/Path search", placeholder="e.g., 2016/08 or thomas", key="smart_filename")
+    filename_query = st.sidebar.text_input("Filename/Path search", placeholder="e.g., 2016/08 or alex", key="smart_filename")
     caption_query = st.sidebar.text_input("Caption search", placeholder="e.g., birthday party with kids", key="smart_caption")
     use_semantic = st.sidebar.checkbox("Use semantic search for caption", value=False, help="Enable semantic similarity search for captions (requires sentence-transformers)", key="smart_semantic")
     
@@ -648,7 +648,7 @@ def main():
     
     # Simple filename-only search option
     st.sidebar.subheader("Filename/Path Only Search")
-    simple_filename_query = st.sidebar.text_input("Search filename or path", placeholder="e.g., 2016/08 or martha", key="simple_filename_input")
+    simple_filename_query = st.sidebar.text_input("Search filename or path", placeholder="e.g., 2016/08 or alex", key="simple_filename_input")
     simple_filename_limit = st.sidebar.slider("Results limit", min_value=1, max_value=500, value=100, key="simple_filename_slider")
     
     if st.sidebar.button("📁 Search Filename/Path"):
