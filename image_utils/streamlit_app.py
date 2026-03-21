@@ -622,7 +622,7 @@ def main():
     
     # Smart search section with filename/path and caption search
     st.sidebar.subheader("Smart Search (filename + caption)")
-    filename_query = st.sidebar.text_input("Filename/Path search", placeholder="e.g., 2016/08 or andrew", key="smart_filename")
+    filename_query = st.sidebar.text_input("Filename/Path search", placeholder="e.g., 2016/08 or thomas", key="smart_filename")
     caption_query = st.sidebar.text_input("Caption search", placeholder="e.g., birthday party with kids", key="smart_caption")
     use_semantic = st.sidebar.checkbox("Use semantic search for caption", value=False, help="Enable semantic similarity search for captions (requires sentence-transformers)", key="smart_semantic")
     
