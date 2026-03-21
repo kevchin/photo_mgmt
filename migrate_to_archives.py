@@ -18,8 +18,11 @@ except ImportError:
     sys.exit(1)
 
 def update_schema(conn_str):
-    """Add missing columns to the existing photos table if they don't exist."""
+    """Add missing columns to the existing images table if they don't exist."""
     print(f"Connecting to database to verify/update schema...")
+    
+    # The actual table name in your database
+    TABLE_NAME = "images"
     
     try:
         conn = psycopg2.connect(conn_str)
@@ -37,11 +40,11 @@ def update_schema(conn_str):
         cur.execute("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables 
-                WHERE table_name = 'photos'
+                WHERE table_name = %s
             );
-        """)
+        """, (TABLE_NAME,))
         if not cur.fetchone()[0]:
-            print("Warning: 'photos' table not found. This might be a fresh database.")
+            print(f"Warning: '{TABLE_NAME}' table not found. This might be a fresh database.")
             return True
 
         for col_name, col_type in columns_to_add.items():
@@ -49,14 +52,14 @@ def update_schema(conn_str):
             cur.execute("""
                 SELECT EXISTS (
                     SELECT FROM information_schema.columns 
-                    WHERE table_name = 'photos' AND column_name = %s
+                    WHERE table_name = %s AND column_name = %s
                 );
-            """, (col_name,))
+            """, (TABLE_NAME, col_name))
             
             exists = cur.fetchone()[0]
             if not exists:
                 print(f"  - Adding missing column: {col_name}")
-                cur.execute(f"ALTER TABLE photos ADD COLUMN IF NOT EXISTS {col_name} {col_type};")
+                cur.execute(f"ALTER TABLE {TABLE_NAME} ADD COLUMN IF NOT EXISTS {col_name} {col_type};")
             else:
                 print(f"  - Column {col_name} already exists.")
         
