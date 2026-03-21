@@ -1,0 +1,47 @@
+# Photo Archive Configuration
+# This file defines multiple photo archives, each with its own database and root directory.
+# You can switch between these archives in the Streamlit app.
+
+archives:
+  # TEMPLATE: Copy this block to add a new archive
+  # - name: "Archive Name"
+  #   id: "unique_id"
+  #   db_path: "postgresql://user:password@host:port/dbname"
+  #   root_dir: "/path/to/photos"
+  #   description: "Description of this archive"
+  #   embedding_model: "all-MiniLM-L6-v2"
+  #   llm_model: "local-llama3"
+
+  # Example Archive 1: Production
+  - name: "Production Archive"
+    id: "prod_v1"
+    db_path: "postgresql://postgres:changeme@localhost:5432/photo_archive"
+    root_dir: "~/Documents/photos1"
+    description: "Main production photo archive"
+    embedding_model: "all-MiniLM-L6-v2"
+    llm_model: "local-llama3"
+
+  # Example Archive 2: Test with Llama 3 captions
+  - name: "Test Llama 3 Captions"
+    id: "test_llama3"
+    db_path: "postgresql://postgres:changeme@localhost:5432/photo_test_llama3"
+    root_dir: "~/Downloads/test3"
+    description: "Testing new Llama 3 captioning model"
+    embedding_model: "all-MiniLM-L6-v2"
+    llm_model: "local-llama3"
+
+  # Example Archive 3: Test with GPT-4 captions
+  - name: "Test GPT-4 Captions"
+    id: "test_gpt4"
+    db_path: "postgresql://postgres:changeme@localhost:5432/photo_test_gpt4"
+    root_dir: "~/Downloads/test_gpt4"
+    description: "Testing GPT-4 captioning model"
+    embedding_model: "all-MiniLM-L6-v2"
+    llm_model: "gpt-4"
+
+# Global settings (optional overrides per archive)
+settings:
+  default_embedding_model: "all-MiniLM-L6-v2"
+  default_llm_model: "local-llama3"
+  max_results_warning: 100
+  max_display_results: 50
