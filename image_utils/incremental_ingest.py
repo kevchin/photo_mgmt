@@ -212,9 +212,16 @@ def extract_photo_metadata(file_path: Path) -> Dict:
                             lat_dms = gps_data['GPSLatitude']
                             lat_ref = gps_data['GPSLatitudeRef']
                             if len(lat_dms) >= 3:
-                                degrees = float(lat_dms[0]) if isinstance(lat_dms[0], (int, float)) else float(lat_dms[0].num) / float(lat_dms[0].den)
-                                minutes = float(lat_dms[1]) if isinstance(lat_dms[1], (int, float)) else float(lat_dms[1].num) / float(lat_dms[1].den)
-                                seconds = float(lat_dms[2]) if isinstance(lat_dms[2], (int, float)) else float(lat_dms[2].num) / float(lat_dms[2].den)
+                                # Handle IFDRational objects properly (Pillow >= 9.1)
+                                def to_float(val):
+                                    if isinstance(val, (int, float)):
+                                        return float(val)
+                                    # For IFDRational, use numerator/denominator
+                                    return float(val) / float(val.denominator) if hasattr(val, 'denominator') else float(val)
+                                
+                                degrees = to_float(lat_dms[0])
+                                minutes = to_float(lat_dms[1])
+                                seconds = to_float(lat_dms[2])
                                 decimal = degrees + (minutes / 60.0) + (seconds / 3600.0)
                                 if lat_ref in ['S', 'W']:
                                     decimal = -decimal
@@ -228,9 +235,16 @@ def extract_photo_metadata(file_path: Path) -> Dict:
                             lon_dms = gps_data['GPSLongitude']
                             lon_ref = gps_data['GPSLongitudeRef']
                             if len(lon_dms) >= 3:
-                                degrees = float(lon_dms[0]) if isinstance(lon_dms[0], (int, float)) else float(lon_dms[0].num) / float(lon_dms[0].den)
-                                minutes = float(lon_dms[1]) if isinstance(lon_dms[1], (int, float)) else float(lon_dms[1].num) / float(lon_dms[1].den)
-                                seconds = float(lon_dms[2]) if isinstance(lon_dms[2], (int, float)) else float(lon_dms[2].num) / float(lon_dms[2].den)
+                                # Handle IFDRational objects properly (Pillow >= 9.1)
+                                def to_float(val):
+                                    if isinstance(val, (int, float)):
+                                        return float(val)
+                                    # For IFDRational, use numerator/denominator
+                                    return float(val) / float(val.denominator) if hasattr(val, 'denominator') else float(val)
+                                
+                                degrees = to_float(lon_dms[0])
+                                minutes = to_float(lon_dms[1])
+                                seconds = to_float(lon_dms[2])
                                 decimal = degrees + (minutes / 60.0) + (seconds / 3600.0)
                                 if lon_ref in ['S', 'W']:
                                     decimal = -decimal
@@ -359,7 +373,7 @@ def initialize_caption_generator(use_local: bool = False, api_key: Optional[str]
         try:
             from generate_captions_local import FlorenceCaptionGenerator as CaptionGeneratorLocal
             print(f"Using local caption generator (Florence-2)")
-            return CaptionGeneratorLocal(model="microsoft/Florence-2-base")
+            return CaptionGeneratorLocal()
         except ImportError as e:
             print(f"Warning: Local caption generator not available: {e}")
             print("Install with: pip install torch transformers")
