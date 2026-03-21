@@ -106,6 +106,11 @@ def generate_caption(image_path: str,
     if not quantized:
         model = model.to(device)
     
+    # Determine dtype based on model's actual dtype after loading
+    # This prevents dtype mismatch errors
+    model_dtype = next(model.parameters()).dtype
+    print(f"Model dtype: {model_dtype}", file=sys.stderr)
+    
     print("Model loaded successfully", file=sys.stderr)
     
     # Open and process image
@@ -120,13 +125,12 @@ def generate_caption(image_path: str,
         image = image.resize(new_size, Image.Resampling.LANCZOS)
         print(f"Resized image to {new_size} to reduce memory usage", file=sys.stderr)
     
-    # Prepare input
-    dtype = torch.float16 if device != "cpu" and not quantized else torch.float32
+    # Prepare input - use model's actual dtype to avoid mismatches
     inputs = processor(
         text=task,
         images=image,
         return_tensors="pt"
-    ).to(device, dtype)
+    ).to(device, model_dtype)
     
     # Generate caption
     with torch.no_grad():
