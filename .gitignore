@@ -1,1 +1,7 @@
-Nothing should be ignored based on the provided file changes. The only modified file is a Python source file (`test_ingest_utils/heic_metadata_extractor.py`), which should not be added to .gitignore.
+```
+# Image files (based on detected changes)
+*.jpg
+*.jpeg
+*.heif
+*.heic
+```
