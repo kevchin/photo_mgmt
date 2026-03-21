@@ -11,7 +11,9 @@ Usage:
     python simple_caption.py /path/to/image.jpg --model microsoft/Florence-2-large
 
 Requirements:
-    pip install transformers torch pillow
+    pip install transformers torch pillow pillow-heif
+    
+Note: For low-memory systems, use --quantized flag to reduce memory usage.
 """
 
 import sys
@@ -24,6 +26,13 @@ try:
 except ImportError:
     print("Error: Pillow not installed. Run: pip install pillow")
     sys.exit(1)
+
+# Register HEIC support if pillow-heif is available
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass  # HEIC support not available, will fail gracefully if HEIC file is used
 
 try:
     import torch
@@ -41,7 +50,8 @@ except ImportError:
 def generate_caption(image_path: str, 
                      model_name: str = "microsoft/Florence-2-base",
                      detailed: bool = False,
-                     very_detailed: bool = False):
+                     very_detailed: bool = False,
+                     quantized: bool = False):
     """
     Generate a caption for a single image using Florence-2
     
@@ -50,6 +60,7 @@ def generate_caption(image_path: str,
         model_name: HuggingFace model name (default: microsoft/Florence-2-base)
         detailed: Use detailed caption mode
         very_detailed: Use very detailed caption mode
+        quantized: Use 8-bit quantization to reduce memory usage
     
     Returns:
         Generated caption string
@@ -75,24 +86,47 @@ def generate_caption(image_path: str,
     
     # Load model and processor
     print(f"Loading model: {model_name}...", file=sys.stderr)
+    
+    # Configure quantization for low-memory systems
+    model_kwargs = {"trust_remote_code": True}
+    if quantized and device == "cpu":
+        try:
+            model_kwargs["load_in_8bit"] = True
+            print("Using 8-bit quantization to reduce memory usage", file=sys.stderr)
+        except Exception:
+            print("Warning: 8-bit quantization not available, using default loading", file=sys.stderr)
+    
     processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        trust_remote_code=True,
-        torch_dtype=torch.float16 if device != "cpu" else torch.float32
-    ).to(device)
+        **model_kwargs
+    )
+    
+    # Move to device (if not already loaded in 8-bit which handles device placement)
+    if not quantized:
+        model = model.to(device)
+    
     print("Model loaded successfully", file=sys.stderr)
     
     # Open and process image
     print(f"Processing image: {image_path}", file=sys.stderr)
     image = Image.open(image_path).convert("RGB")
     
+    # Resize image if too large to save memory
+    max_size = 768
+    if max(image.size) > max_size:
+        ratio = max_size / max(image.size)
+        new_size = (int(image.width * ratio), int(image.height * ratio))
+        image = image.resize(new_size, Image.Resampling.LANCZOS)
+        print(f"Resized image to {new_size} to reduce memory usage", file=sys.stderr)
+    
     # Prepare input
+    dtype = torch.float16 if device != "cpu" and not quantized else torch.float32
     inputs = processor(
         text=task,
         images=image,
         return_tensors="pt"
-    ).to(device, torch.float16 if device != "cpu" else torch.float32)
+    ).to(device, dtype)
     
     # Generate caption
     with torch.no_grad():
@@ -157,6 +191,8 @@ Examples:
     parser.add_argument('--device', type=str, default='auto',
                         choices=['auto', 'cuda', 'cpu', 'mps'],
                         help='Device to run on (default: auto)')
+    parser.add_argument('--quantized', action='store_true',
+                        help='Use 8-bit quantization to reduce memory usage (recommended for systems with <8GB RAM)')
     
     args = parser.parse_args()
     
@@ -174,7 +210,8 @@ Examples:
             str(image_path),
             model_name=args.model,
             detailed=args.detailed,
-            very_detailed=args.very_detailed
+            very_detailed=args.very_detailed,
+            quantized=args.quantized
         )
         
         # Output just the caption to stdout
