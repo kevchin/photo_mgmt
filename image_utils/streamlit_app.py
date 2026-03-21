@@ -648,7 +648,7 @@ def main():
     
     # Simple filename-only search option
     st.sidebar.subheader("Filename/Path Only Search")
-    simple_filename_query = st.sidebar.text_input("Search filename or path", placeholder="e.g., 2016/08 or andrew", key="simple_filename_input")
+    simple_filename_query = st.sidebar.text_input("Search filename or path", placeholder="e.g., 2016/08 or martha", key="simple_filename_input")
     simple_filename_limit = st.sidebar.slider("Results limit", min_value=1, max_value=500, value=100, key="simple_filename_slider")
     
     if st.sidebar.button("📁 Search Filename/Path"):
