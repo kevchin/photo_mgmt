@@ -1,13 +1,18 @@
 """
 Database configuration for embedding evolution system.
 Supports both legacy (source) and evolution (target) databases.
+Configurable via environment variables.
 """
 import os
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 from pgvector.sqlalchemy import Vector
 
-# Database URLs
+# Load environment variables from .env file if it exists
+load_dotenv()
+
+# Database URLs - can be overridden via environment variables
 LEGACY_DATABASE_URL = os.getenv(
     "LEGACY_DATABASE_URL", 
     "postgresql://postgres:postgres@localhost:5432/image_archive"
@@ -17,13 +22,32 @@ EVOLUTION_DATABASE_URL = os.getenv(
     "postgresql://postgres:postgres@localhost:5432/image_archive_evolution"
 )
 
+# Determine which database to use as active (for Streamlit app)
+# Options: "legacy", "evolution", or custom URL
+ACTIVE_DATABASE = os.getenv("ACTIVE_DATABASE", "evolution")
+
+def get_active_database_url() -> str:
+    """Get the URL for the currently active database."""
+    if ACTIVE_DATABASE == "legacy":
+        return LEGACY_DATABASE_URL
+    elif ACTIVE_DATABASE == "evolution":
+        return EVOLUTION_DATABASE_URL
+    else:
+        # Allow direct URL override
+        custom_url = os.getenv("DATABASE_URL")
+        if custom_url:
+            return custom_url
+        return EVOLUTION_DATABASE_URL
+
 # Create engines
 legacy_engine = create_engine(LEGACY_DATABASE_URL, pool_pre_ping=True)
 evolution_engine = create_engine(EVOLUTION_DATABASE_URL, pool_pre_ping=True)
+active_engine = create_engine(get_active_database_url(), pool_pre_ping=True)
 
 # Session factories
 LegacySessionLocal = sessionmaker(bind=legacy_engine, autocommit=False, autoflush=False)
 EvolutionSessionLocal = sessionmaker(bind=evolution_engine, autocommit=False, autoflush=False)
+ActiveSessionLocal = sessionmaker(bind=active_engine, autocommit=False, autoflush=False)
 
 
 def get_legacy_session() -> Session:

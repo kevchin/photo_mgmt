@@ -1,6 +1,7 @@
 """
 Vector similarity search for photos using pgvector.
 Supports multiple embedding models and hybrid search strategies.
+Configurable database connection.
 """
 import sys
 import os
@@ -9,8 +10,8 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sqlalchemy import text
-from config.database import evolution_engine, EvolutionSessionLocal
+from sqlalchemy import text, create_engine
+from config.database import evolution_engine, EvolutionSessionLocal, get_active_database_url, active_engine
 from config.models import get_model_config, ModelType
 from ingestion.embedder import Embedder
 
@@ -18,16 +19,23 @@ from ingestion.embedder import Embedder
 class VectorSearch:
     """Perform vector similarity searches on photo embeddings."""
     
-    def __init__(self, default_model: str = "florence-2-base"):
+    def __init__(self, default_model: str = "florence-2-base", database_url: Optional[str] = None):
         """
         Initialize vector search.
         
         Args:
             default_model: Default embedding model to use for searches
+            database_url: Optional custom database URL (overrides environment)
         """
         self.default_model = default_model
         self.default_config = get_model_config(default_model)
         self.embedder = None
+        
+        # Use custom database URL if provided, otherwise use the active engine
+        if database_url:
+            self.engine = create_engine(database_url, pool_pre_ping=True)
+        else:
+            self.engine = active_engine
         
         # Initialize embedder for the default model if it's an embedding model
         # or use a compatible sentence transformer
@@ -120,7 +128,7 @@ class VectorSearch:
         """
         
         results = []
-        with evolution_engine.connect() as conn:
+        with self.engine.connect() as conn:
             result = conn.execute(text(query), params)
             
             for row in result:
@@ -190,7 +198,7 @@ class VectorSearch:
     
     def get_available_models(self) -> List[Dict]:
         """Get list of models with available embeddings in the database."""
-        with evolution_engine.connect() as conn:
+        with self.engine.connect() as conn:
             result = conn.execute(text("""
                 SELECT model_name, embedding_dimension, description, is_active
                 FROM caption_models
@@ -217,7 +225,7 @@ class VectorSearch:
     
     def get_stats(self) -> Dict:
         """Get database statistics."""
-        with evolution_engine.connect() as conn:
+        with self.engine.connect() as conn:
             total_photos = conn.execute(text("SELECT COUNT(*) FROM photos")).scalar()
             
             # Count photos with embeddings for each model

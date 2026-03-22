@@ -10,6 +10,7 @@ from enum import Enum
 class ModelType(Enum):
     CAPTIONING = "captioning"
     EMBEDDING = "embedding"
+    JOINT = "joint"  # Joint image-text embedding (e.g., nomic-embed-vision)
 
 
 @dataclass
@@ -109,11 +110,21 @@ MODELS: Dict[str, ModelConfig] = {
     
     "nomic-embed-text": ModelConfig(
         name="nomic-embed-text",
-        model_id="nomic-ai/nomic-embed-text-v1",
+        model_id="nomic-ai/nomic-embed-text-v1.5",
         model_type=ModelType.EMBEDDING,
         embedding_dimension=768,
-        description="Nomic AI text embedding model",
+        description="Nomic AI text embedding v1.5 - pairs with nomic-embed-vision",
         gpu_memory_required_gb=4,
+        caption_preset=None
+    ),
+    
+    "nomic-embed-vision-v1.5": ModelConfig(
+        name="nomic-embed-vision-v1.5",
+        model_id="nomic-ai/nomic-embed-vision-v1.5",
+        model_type=ModelType.JOINT,  # Joint image-text embedding
+        embedding_dimension=768,
+        description="Nomic AI vision-language model - direct image to 768d embedding",
+        gpu_memory_required_gb=6,
         caption_preset=None
     ),
 }
