@@ -10,7 +10,7 @@ from typing import List, Optional, Union
 import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
-from config.models import ModelConfig, get_model_config
+from config.models import ModelConfig, get_model_config, ModelType
 
 
 class Embedder:
