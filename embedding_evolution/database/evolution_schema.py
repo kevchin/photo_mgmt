@@ -520,8 +520,18 @@ class EvolutionDatabase:
 # Example usage
 if __name__ == "__main__":
     import numpy as np
+    import os
+    from dotenv import load_dotenv
     
-    db_url = "postgresql://postgres:postgres@localhost:5432/photo_archive_evolution"
+    # Load environment variables
+    load_dotenv()
+    
+    # Use the same database URL as the rest of the system
+    EVOLUTION_DATABASE_URL = os.getenv(
+        "EVOLUTION_DATABASE_URL", 
+        "postgresql://postgres:postgres@localhost:5432/image_archive_evolution"
+    )
+    db_url = EVOLUTION_DATABASE_URL
     
     with EvolutionDatabase(db_url) as db:
         # Create schema
