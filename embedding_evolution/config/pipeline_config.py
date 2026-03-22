@@ -78,6 +78,9 @@ class EmbeddingModelConfig:
         "thenlper/gte-large": 1024,
         "intfloat/e5-large-v2": 1024,
         "intfloat/e5-mistral-7b-instruct": 4096,
+        # Nomic Embed models (Vision + Text paired)
+        "nomic-embed-vision-v1.5": 768,
+        "nomic-embed-text-v1.5": 768,
     })
     
     def __post_init__(self):
@@ -159,6 +162,91 @@ class PipelineConfig:
                 dimension=768
             ),
             database_url=database_url or cls.database_url
+        )
+        return config
+    
+    @classmethod
+    def create_nomic_vision_text_pipeline(cls,
+                                           vlm_model: str = "microsoft/Florence-2-base",
+                                           text_embedding_model: str = "nomic-embed-text-v1.5",
+                                           database_url: Optional[str] = None) -> 'PipelineConfig':
+        """
+        Create a pipeline using Nomic Embed models.
+        
+        NOTE: nomic-embed-vision-v1.5 is a JOINT embedding model that embeds 
+        both images and text into the SAME 768-dim space. This is different from
+        the 2-stage pipeline where VLM generates text then text is embedded.
+        
+        For Nomic Vision-Text paired embeddings, you have TWO options:
+        
+        OPTION A (Recommended for Nomic): Use joint embedding
+          - Image → nomic-embed-vision-v1.5 → 768-dim vector
+          - Text query → nomic-embed-text-v1.5 → 768-dim vector
+          - Both vectors are directly comparable (same space)
+          - No caption generation needed
+        
+        OPTION B (2-stage with Nomic text embedder):
+          - Image → VLM (Florence/LLaVA) → Caption text
+          - Caption → nomic-embed-text-v1.5 → 768-dim vector
+          - This is what this method creates
+        
+        Args:
+            vlm_model: VLM for generating captions (Stage 1)
+            text_embedding_model: Should be "nomic-embed-text-v1.5" for 768-dim
+            database_url: PostgreSQL connection string
+        """
+        
+        config = cls(
+            vlm=VLMConfig(
+                model_id=vlm_model,
+                model_type="florence2" if "florence" in vlm_model.lower() else "llava",
+                prompt_type="detailed"
+            ),
+            embedding=EmbeddingModelConfig(
+                model_id=text_embedding_model,
+                dimension=768
+            ),
+            database_url=database_url or cls.database_url
+        )
+        return config
+    
+    @classmethod
+    def create_nomic_joint_pipeline(cls,
+                                     vision_model: str = "nomic-ai/nomic-embed-vision-v1.5",
+                                     text_model: str = "nomic-embed-text-v1.5",
+                                     database_url: Optional[str] = None) -> 'PipelineConfig':
+        """
+        Create a pipeline using Nomic's JOINT vision-text embedding.
+        
+        This bypasses caption generation entirely:
+          - Image → nomic-embed-vision-v1.5 → 768-dim vector (stored in DB)
+          - Text query → nomic-embed-text-v1.5 → 768-dim vector (at search time)
+        
+        Advantages:
+          - Faster ingestion (no caption generation)
+          - Direct image-to-text similarity in same embedding space
+          - Optimized for cross-modal retrieval
+        
+        Disadvantages:
+          - No human-readable captions stored
+          - Cannot search by caption text content, only by similarity
+        
+        This requires a modified pipeline (see pipeline/joint_embedder.py)
+        """
+        
+        # Special config marker for joint embedding mode
+        config = cls(
+            vlm=VLMConfig(
+                model_id=vision_model,
+                model_type="nomic_vision",
+                prompt_type="joint_embedding"
+            ),
+            embedding=EmbeddingModelConfig(
+                model_id=text_model,
+                dimension=768
+            ),
+            database_url=database_url or cls.database_url,
+            cache_captions=False  # No captions in joint mode
         )
         return config
     
