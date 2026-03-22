@@ -182,16 +182,32 @@ class EvolutionDatabase:
                 WHERE latitude IS NOT NULL AND longitude IS NOT NULL;
             """)
             
-            # Index on B&W flag
+            # Index on B&W flag (only if column exists)
             cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_photos_bw 
-                ON photos(is_black_and_white);
+                DO $$ 
+                BEGIN 
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns 
+                        WHERE table_name = 'photos' AND column_name = 'is_black_and_white'
+                    ) THEN
+                        CREATE INDEX IF NOT EXISTS idx_photos_bw 
+                        ON photos(is_black_and_white);
+                    END IF;
+                END $$;
             """)
             
-            # Index on caption model
+            # Index on caption model (only if column exists)
             cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_photos_caption_model 
-                ON photos(caption_model);
+                DO $$ 
+                BEGIN 
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns 
+                        WHERE table_name = 'photos' AND column_name = 'caption_model'
+                    ) THEN
+                        CREATE INDEX IF NOT EXISTS idx_photos_caption_model 
+                        ON photos(caption_model);
+                    END IF;
+                END $$;
             """)
             
             # Commit changes
