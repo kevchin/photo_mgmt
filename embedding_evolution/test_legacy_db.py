@@ -37,10 +37,16 @@ def test_legacy_connection():
             tables = inspector.get_table_names()
             print(f"\nTables in legacy database: {tables}")
             
-            # Inspect photos table
+            # Check for image table (could be 'photos' or 'images')
+            image_table = None
             if 'photos' in tables:
-                columns = inspector.get_columns('photos')
-                print(f"\nColumns in 'photos' table:")
+                image_table = 'photos'
+            elif 'images' in tables:
+                image_table = 'images'
+            
+            if image_table:
+                columns = inspector.get_columns(image_table)
+                print(f"\nColumns in '{image_table}' table:")
                 for col in columns:
                     print(f"  - {col['name']}: {col['type']} (nullable: {col['nullable']})")
                 
@@ -52,7 +58,7 @@ def test_legacy_connection():
                     print("\n⚠ No obvious embedding columns found")
                 
                 # Count records
-                result = conn.execute(text("SELECT COUNT(*) FROM photos")).scalar()
+                result = conn.execute(text(f"SELECT COUNT(*) FROM {image_table}")).scalar()
                 print(f"\nTotal photos: {result}")
                 
                 # Check for caption_models table
@@ -66,7 +72,8 @@ def test_legacy_connection():
                     print("→ This appears to be an EVOLUTION database (with model tracking)")
                     
             else:
-                print("\n⚠ No 'photos' table found!")
+                print("\n⚠ No 'photos' or 'images' table found!")
+                print("   The database appears to be empty or uses a different table name.")
                 
     except Exception as e:
         print(f"\n✗ Error connecting to legacy database: {e}")

@@ -19,23 +19,29 @@ from ingestion.embedder import Embedder
 class VectorSearch:
     """Perform vector similarity searches on photo embeddings."""
     
-    def __init__(self, default_model: str = "florence-2-base", database_url: Optional[str] = None):
+    def __init__(self, default_model: str = "florence-2-base", database_url: Optional[str] = None, table_name: Optional[str] = None):
         """
         Initialize vector search.
         
         Args:
             default_model: Default embedding model to use for searches
             database_url: Optional custom database URL (overrides environment)
+            table_name: Optional table name (auto-detected if not provided)
         """
         self.default_model = default_model
         self.default_config = get_model_config(default_model)
         self.embedder = None
+        self.table_name = table_name
         
         # Use custom database URL if provided, otherwise use the active engine
         if database_url:
             self.engine = create_engine(database_url, pool_pre_ping=True)
         else:
             self.engine = active_engine
+        
+        # Auto-detect table name if not provided
+        if self.table_name is None:
+            self.table_name = self._detect_table_name()
         
         # Initialize embedder for the default model if it's an embedding model
         # or use a compatible sentence transformer
@@ -48,6 +54,36 @@ class VectorSearch:
             # that matches your caption model's output
             print(f"Note: {default_model} is a captioning model.")
             print("For text-to-vector search, use an embedding model like 'all-MiniLM-L6-v2'")
+    
+    def _detect_table_name(self) -> str:
+        """Auto-detect the main image table name from the database."""
+        try:
+            with self.engine.connect() as conn:
+                # Get all tables, excluding system tables
+                result = conn.execute(text("""
+                    SELECT table_name FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name NOT IN ('spatial_ref_sys', 'geometry_columns', 'raster_columns', 'caption_models')
+                    ORDER BY table_name
+                """))
+                tables = [row[0] for row in result.fetchall()]
+                
+                # Prefer common names in order
+                preferred_names = ['photos', 'images', 'pictures', 'media']
+                for name in preferred_names:
+                    if name in tables:
+                        print(f"Auto-detected table name: {name}")
+                        return name
+                
+                # If no preferred name found, use the first non-system table
+                if tables:
+                    print(f"Auto-detected table name: {tables[0]}")
+                    return tables[0]
+                
+                raise Exception("No suitable table found in database")
+        except Exception as e:
+            print(f"Error detecting table name, defaulting to 'photos': {e}")
+            return "photos"
     
     def search_by_vector(self, query_vector: np.ndarray, 
                         model_name: Optional[str] = None,
@@ -126,7 +162,7 @@ class VectorSearch:
                 year, month, day, latitude, longitude, is_black_white,
                 orientation,
                 1 - ({column_name} <=> :query_vector::vector) AS similarity_score
-            FROM photos
+            FROM {self.table_name}
             WHERE {column_name} IS NOT NULL
             {where_clause}
             ORDER BY {column_name} <=> :query_vector::vector
@@ -150,7 +186,7 @@ class VectorSearch:
                                 year, month, day, latitude, longitude, is_black_white,
                                 orientation,
                                 1 - ({legacy_col} <=> :query_vector::vector) AS similarity_score
-                            FROM photos
+                            FROM {self.table_name}
                             WHERE {legacy_col} IS NOT NULL
                             {where_clause}
                             ORDER BY {legacy_col} <=> :query_vector::vector
@@ -257,7 +293,7 @@ class VectorSearch:
                     # Try to count photos with embeddings
                     try:
                         col_count = conn.execute(text("""
-                            SELECT COUNT(*) FROM photos 
+                            SELECT COUNT(*) FROM {self.table_name} 
                             WHERE embedding IS NOT NULL OR embedding_vector IS NOT NULL
                         """)).scalar()
                         return [{
@@ -282,7 +318,7 @@ class VectorSearch:
                     # Check if this model's column has any data
                     config = get_model_config(row.model_name)
                     col_count = conn.execute(text(f"""
-                        SELECT COUNT(*) FROM photos WHERE {config.column_name} IS NOT NULL
+                        SELECT COUNT(*) FROM {self.table_name} WHERE {config.column_name} IS NOT NULL
                     """)).scalar()
                     
                     models.append({
@@ -301,7 +337,7 @@ class VectorSearch:
     def get_stats(self) -> Dict:
         """Get database statistics."""
         with self.engine.connect() as conn:
-            total_photos = conn.execute(text("SELECT COUNT(*) FROM photos")).scalar()
+            total_photos = conn.execute(text("SELECT COUNT(*) FROM {self.table_name}")).scalar()
             
             # Check if caption_models table exists (evolution schema)
             has_caption_models = conn.execute(text("""
@@ -318,7 +354,7 @@ class VectorSearch:
                 for row in result:
                     config = get_model_config(row.model_name)
                     count = conn.execute(text(f"""
-                        SELECT COUNT(*) FROM photos WHERE {config.column_name} IS NOT NULL
+                        SELECT COUNT(*) FROM {self.table_name} WHERE {config.column_name} IS NOT NULL
                     """)).scalar()
                     models_with_counts.append({
                         'model': row.model_name,
@@ -329,7 +365,7 @@ class VectorSearch:
                 # Legacy database - assume florence-2-base embeddings
                 try:
                     count = conn.execute(text("""
-                        SELECT COUNT(*) FROM photos 
+                        SELECT COUNT(*) FROM {self.table_name} 
                         WHERE embedding IS NOT NULL OR embedding_vector IS NOT NULL OR embedding_florence_2_base_384 IS NOT NULL
                     """)).scalar()
                     if count > 0:
@@ -343,18 +379,18 @@ class VectorSearch:
             
             # Date range
             date_range = conn.execute(text("""
-                SELECT MIN(capture_date), MAX(capture_date) FROM photos
+                SELECT MIN(capture_date), MAX(capture_date) FROM {self.table_name}
             """)).fetchone()
             
             # GPS bounds
             gps_bounds = conn.execute(text("""
                 SELECT MIN(latitude), MAX(latitude), MIN(longitude), MAX(longitude)
-                FROM photos WHERE latitude IS NOT NULL
+                FROM {self.table_name} WHERE latitude IS NOT NULL
             """)).fetchone()
             
             # B&W count
             bw_count = conn.execute(text("""
-                SELECT COUNT(*) FROM photos WHERE is_black_white = TRUE
+                SELECT COUNT(*) FROM {self.table_name} WHERE is_black_white = TRUE
             """)).scalar()
             
             return {
