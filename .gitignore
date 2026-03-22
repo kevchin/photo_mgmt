@@ -1,1 +1,37 @@
-Nothing needs to be added to .gitignore since the only change is adding a markdown file (QUICK_START_NEW_ARCHIVE.md) which is a source/config file and should not be ignored.
+```gitignore
+# Compiled Python files
+*.pyc
+__pycache__/
+
+# Logs and temp files
+*.log
+*.tmp
+
+# Environment files
+.env
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
+
+# Dependencies
+.venv/
+venv/
+node_modules/
+
+# Build artifacts
+dist/
+build/
+target/
+
+# Coverage reports
+coverage/
+htmlcov/
+.coverage
+
+# OS specific
+.DS_Store
+Thumbs.db
+```

@@ -204,22 +204,51 @@ def detect_black_and_white_simple(file_path: Path) -> bool:
         return False
 
 
-def generate_caption_llm(file_path: Path, llm_config) -> Optional[str]:
-    """Generate caption for image using local LLM"""
+def generate_caption_llm(file_path: Path, llm_config, caption_detail: str = "basic") -> Optional[str]:
+    """Generate caption for image using Florence-2 or local LLM
+    
+    Args:
+        file_path: Path to image
+        llm_config: Configuration with model settings
+        caption_detail: Detail level - 'basic', 'detailed', or 'very_detailed'
+    """
     try:
-        from generate_captions_local import LocalCaptionGenerator
+        # Check if using Florence-2 model
+        model_name = getattr(llm_config, 'model', '')
         
-        generator = LocalCaptionGenerator(
-            provider=llm_config.provider,
-            base_url=llm_config.base_url,
-            model=llm_config.model
-        )
-        
-        caption = generator.generate_caption(str(file_path))
-        return caption
+        if 'florence' in model_name.lower() or 'Florence' in model_name:
+            # Use Florence-2 directly
+            from generate_captions_local import FlorenceCaptionGenerator
+            
+            generator = FlorenceCaptionGenerator(
+                model_name=model_name if model_name else "microsoft/Florence-2-base",
+                device="auto",
+                caption_detail=caption_detail
+            )
+            
+            if caption_detail == "very_detailed":
+                caption = generator.generate_very_detailed_caption(str(file_path))
+            elif caption_detail == "detailed":
+                caption = generator.generate_detailed_caption(str(file_path))
+            else:
+                caption = generator.generate_basic_caption(str(file_path))
+                
+            return caption
+        else:
+            # Use Ollama-based local LLM
+            from generate_captions_local import LocalCaptionGenerator
+            
+            generator = LocalCaptionGenerator(
+                provider=getattr(llm_config, 'provider', 'ollama'),
+                base_url=getattr(llm_config, 'base_url', 'http://localhost:11434'),
+                model=model_name
+            )
+            
+            caption = generator.generate_caption(str(file_path))
+            return caption
         
     except Exception as e:
-        print(f"Warning: LLM caption generation failed for {file_path}: {e}")
+        print(f"Warning: Caption generation failed for {file_path}: {e}")
         return None
 
 
@@ -242,9 +271,21 @@ def ingest_photos(
     generate_captions: bool = True,
     detect_bw: bool = True,
     batch_size: int = 50,
-    dry_run: bool = False
+    dry_run: bool = False,
+    caption_detail: str = "basic"
 ) -> int:
-    """Ingest photos from directory into database"""
+    """Ingest photos from directory into database
+    
+    Args:
+        root_dir: Root directory containing photos
+        db: Database connection
+        llm_config: LLM configuration
+        generate_captions: Whether to generate captions
+        detect_bw: Whether to detect black & white photos
+        batch_size: Batch size for inserts
+        dry_run: If True, don't write to database
+        caption_detail: Detail level for captions ('basic', 'detailed', 'very_detailed')
+    """
     
     print(f"\nScanning for photos in: {root_dir}")
     photo_files = scan_photos_directory(root_dir)
@@ -310,8 +351,8 @@ def ingest_photos(
         caption_embedding = None
         
         if generate_captions:
-            print(f"  Generating caption: {photo_path.name}")
-            caption = generate_caption_llm(photo_path, llm_config)
+            print(f"  Generating caption ({caption_detail}): {photo_path.name}")
+            caption = generate_caption_llm(photo_path, llm_config, caption_detail=caption_detail)
             
             if caption and not dry_run:
                 # Generate embedding for the caption
@@ -379,6 +420,12 @@ Examples:
   # Skip caption generation (faster)
   %(prog)s --dir ~/Documents/photos1 --no-captions
   
+  # Use Florence-2 with detailed captions
+  %(prog)s --dir ~/Documents/photos1 --caption-detail detailed --llm-model microsoft/Florence-2-base
+  
+  # Use Florence-2 with very detailed captions
+  %(prog)s --dir ~/Documents/photos1 --caption-detail very_detailed --llm-model microsoft/Florence-2-large
+  
   # Use custom config file
   %(prog)s --dir ~/Documents/photos1 --config /path/to/config.yaml
         """
@@ -398,6 +445,11 @@ Examples:
                        help='Skip black & white detection')
     parser.add_argument('--batch-size', type=int, default=50,
                        help='Batch size for database inserts')
+    parser.add_argument('--caption-detail', type=str, default='basic',
+                       choices=['basic', 'detailed', 'very_detailed'],
+                       help='Level of detail for AI captions (default: basic)')
+    parser.add_argument('--llm-model', type=str, default=None,
+                       help='Override LLM model from config (e.g., microsoft/Florence-2-base, llama3:8b)')
     
     args = parser.parse_args()
     
@@ -427,6 +479,24 @@ Examples:
     print(f"Database: {archive.db_connection}")
     print(f"Root directory: {archive.root_dir}")
     
+    # Override LLM model if specified on command line, otherwise use archive config
+    llm_config = config.llm
+    
+    # Use archive-specific LLM model if defined
+    if archive.llm_model:
+        print(f"Using archive-specific LLM model: {archive.llm_model}")
+        llm_config.model = archive.llm_model
+    
+    # Command line override takes precedence
+    if args.llm_model:
+        print(f"Overriding LLM model to: {args.llm_model}")
+        llm_config.model = args.llm_model
+    
+    # Determine caption detail level (archive config or command line)
+    caption_detail = args.caption_detail if args.caption_detail != 'basic' else archive.caption_detail
+    if caption_detail != args.caption_detail and archive.caption_detail:
+        print(f"Using archive caption detail: {caption_detail}")
+    
     # Verify source directory exists
     if not args.dir.exists():
         print(f"Error: Source directory not found: {args.dir}")
@@ -448,11 +518,12 @@ Examples:
     count = ingest_photos(
         root_dir=args.dir,
         db=db,
-        llm_config=config.llm,
+        llm_config=llm_config,
         generate_captions=not args.no_captions,
         detect_bw=not args.no_bw_detection,
         batch_size=args.batch_size,
-        dry_run=args.dry_run
+        dry_run=args.dry_run,
+        caption_detail=args.caption_detail
     )
     
     if not args.dry_run:
