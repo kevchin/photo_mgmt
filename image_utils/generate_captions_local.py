@@ -169,6 +169,23 @@ class FlorenceCaptionGenerator:
         
         print(f"Model loaded successfully on {self.device}")
     
+    def analyze_image(self, image_path: str, prompt: str = "<CAPTION>") -> Optional[str]:
+        """
+        Analyze an image with a custom prompt
+        
+        Args:
+            image_path: Path to the image file
+            prompt: Custom prompt for analysis (e.g., "Is this image black and white?")
+            
+        Returns:
+            Model response text, or None on error
+        """
+        return self.generate_caption(image_path, task=prompt, correct_orientation=False)
+
+
+# Alias for backwards compatibility - LocalCaptionGenerator is the same as FlorenceCaptionGenerator
+LocalCaptionGenerator = FlorenceCaptionGenerator
+    
     def generate_caption(self, image_path: str, 
                         task: Optional[str] = None,
                         max_tokens: int = 256,
