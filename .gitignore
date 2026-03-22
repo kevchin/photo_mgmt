@@ -1,5 +1,7 @@
 # Dependencies
 __pycache__/
+
+# Compiled files
 *.pyc
 *.pyo
 *.pyd
@@ -9,16 +11,11 @@ __pycache__/
 .env.local
 .env.*
 
-# Logs and temporary files
+# Logs
 *.log
-*.tmp
-*.swp
 
-# Editors
-.vscode/
-.idea/
-
-# Coverage reports
+# Testing
+.pytest_cache/
 .coverage
 coverage/
 htmlcov/
@@ -27,11 +24,19 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+.installed.cfg
+*.egg
 
-# Testing
-.pytest_cache/
-.mypy_cache/
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
 
-# OS generated files
+# OS
 .DS_Store
 Thumbs.db
+
+# MyPy
+.mypy_cache/
