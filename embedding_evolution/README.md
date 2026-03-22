@@ -1,119 +1,147 @@
-# Embedding Evolution Architecture
+# Embedding Evolution System - 2-Stage Pipeline
 
-## Overview
-This directory contains tools for managing photo caption embeddings with support for multiple LLM models and embedding dimensions. The architecture allows you to:
-- Migrate existing 384-dimension Florence-2-base embeddings to a forward-compatible schema
-- Add new photos with different/larger embedding models (e.g., 1584+ dimensions)
-- Maintain backward compatibility with existing search functionality
-- Support hybrid search across multiple embedding models
+## Architecture Overview
 
-## Directory Structure
+This system implements a **2-stage pipeline** for image captioning and embedding generation:
+
 ```
-embedding_evolution/
-├── config/
-│   ├── database.py          # Database connection and configuration
-│   └── models.py            # LLM model configurations and metadata
-├── migrations/
-│   ├── migrate_legacy.py    # Migrate from legacy DB to evolution schema
-│   └── add_model_version.py # Add new embedding columns for new models
-├── ingestion/
-│   ├── caption_generator.py # Generate captions using specified LLM
-│   ├── embedder.py          # Create embeddings with model-specific dimensions
-│   └── photo_ingest.py      # Main ingestion pipeline for new photos
-├── search/
-│   ├── vector_search.py     # Multi-model vector similarity search
-│   └── streamlit_app.py     # Streamlit UI for evolved search
-├── utils/
-│   ├── exif_reader.py       # Extract EXIF metadata (date, GPS, B&W, orientation)
-│   └── validation.py        # Verify embedding compatibility and integrity
-├── tests/
-│   └── test_evolution.py    # Test migration and new model onboarding
-├── requirements.txt         # Python dependencies
-└── README.md               # This file
+┌─────────┐     ┌──────────────────────┐     ┌─────────────────────┐     ┌──────────┐     ┌───────────┐
+│  Image  │ ──► │ Stage 1: VLM Model   │ ──► │ Caption Text        │ ──► │ Stage 2:  │ ──► │ Vector    │
+│         │     │ (Qwen2.5-VL, LLaVA,  │     │ "A golden retriever │     │ Embedding │     │ [1024-d]  │
+│         │     │  Florence-2, etc.)   │     │  on a dock at       │     │ Model     │     │           │
+│         │     │                      │     │  sunset..."         │     │ (BGE,     │     │           │
+└─────────┘     └──────────────────────┘     └─────────────────────┘     │  MPNet,   │          │
+                                                                          │  etc.)    │          ▼
+                                                                          └───────────┘     ┌───────────┐
+                                                                                            │ PostgreSQL│
+                                                                                            │ pgvector  │
+                                                                                            └───────────┘
 ```
 
-## Key Features
+### Key Benefits of 2-Stage Design
 
-### 1. Model-Versioned Schema
-- Separate vector columns for each embedding model (e.g., `embedding_florence_384`, `embedding_llava_1584`)
-- Metadata table tracking model versions, dimensions, and activation dates
-- Raw caption text storage for future re-embedding without re-processing images
-
-### 2. Migration Path
-- Copy existing data from legacy database to new evolution schema
-- Preserve all existing metadata (EXIF date, GPS, B&W flag, orientation)
-- Maintain original 384-dimension embeddings as baseline
-
-### 3. Forward Compatibility
-- Dynamic column creation for new embedding models
-- Configuration-driven model selection during ingestion
-- Support for mixed embedding dimensions within same table
-
-### 4. Search Capabilities
-- Model-specific search (query only photos with specific embedding version)
-- Hybrid search (combine results from multiple embedding models)
-- Pre-filtering using metadata (date range, GPS bounds, B&W filter) before vector search
+1. **Independent Model Upgrades**: Change the VLM without re-running embeddings (if you keep captions)
+2. **Flexible Embedding Dimensions**: Change embedding model without re-processing images
+3. **Caption Caching**: Store raw captions to enable re-embedding without GPU-intensive VLM processing
+4. **Multi-Model Support**: Store multiple embedding dimensions in the same database
 
 ## Quick Start
 
-### Prerequisites
-- PostgreSQL with pgvector extension
-- Python 3.9+
-- Existing legacy database at `postgresql://postgres:postgres@localhost:5432/image_archive`
+### 1. Install Dependencies
 
-### Step 1: Install Dependencies
 ```bash
+cd /workspace/embedding_evolution
 pip install -r requirements.txt
 ```
 
-### Step 2: Configure Database
-Edit `config/database.py` to set up connection strings for:
-- Legacy database (source)
-- Evolution database (target)
+### 2. Create Evolution Database
 
-### Step 3: Run Migration
 ```bash
-python migrations/migrate_legacy.py
-```
-This creates the new database with model-versioned schema and migrates all existing data.
-
-### Step 4: Verify Migration
-```bash
-python tests/test_evolution.py
+python -c "
+from database.evolution_schema import EvolutionDatabase
+db = EvolutionDatabase('postgresql://postgres:postgres@localhost:5432/photo_archive_evolution')
+db.create_schema()
+db.add_embedding_column('all-MiniLM-L6-v2', 384)    # Legacy
+db.add_embedding_column('bge-base-en-v1.5', 768)    # Medium
+db.add_embedding_column('bge-large-en-v1.5', 1024)  # High quality
+"
 ```
 
-### Step 5: Add New Photos with Different Model
-```bash
-python ingestion/photo_ingest.py --model llava-1.6-34b --photos-dir /path/to/new/photos
+### 3. Run the 2-Stage Pipeline
+
+```python
+from config.pipeline_config import PipelineConfig
+from pipeline.stage3_orchestrator import TwoStagePipeline
+from pathlib import Path
+
+# Configure pipeline: Qwen2.5-VL (Stage 1) + BGE-large (Stage 2)
+config = PipelineConfig.create_qwen_bge_pipeline(
+    vlm_model="Qwen/Qwen2.5-VL-7B-Instruct",
+    embedding_model="BAAI/bge-large-en-v1.5"
+)
+
+# Initialize and run
+pipeline = TwoStagePipeline(config)
+pipeline.initialize()
+
+# Process images
+images = [Path("/photos/2024/01/15/DSC_0001.jpg")]
+results = pipeline.process_batch(images)
+
+for result in results:
+    print(f"Caption: {result['caption']}")
+    print(f"Embedding dim: {result['embedding_dimension']}")
 ```
 
-### Step 6: Launch Evolved Search UI
+## Supported Models
+
+### Stage 1: Vision-Language Models (VLM)
+
+| Model | Size | VRAM Required | Description |
+|-------|------|---------------|-------------|
+| **Florence-2-base** | 230MB | ~2GB | Fast, good quality, your current model |
+| **LLaVA-1.5-7B** | 7B | ~16GB | Better detail, more VRAM |
+| **Qwen2.5-VL-7B** | 7B | ~16GB | Excellent detail, recommended upgrade |
+| **LLaVA-1.6-34B** | 34B | ~48GB | State-of-the-art, needs high-end GPU |
+
+### Stage 2: Text Embedding Models
+
+| Model | Dimension | Quality | Use Case |
+|-------|-----------|---------|----------|
+| **all-MiniLM-L6-v2** | 384 | Good | Legacy compatibility (your current) |
+| **all-mpnet-base-v2** | 768 | Better | Balanced performance/quality |
+| **BAAI/bge-base-en-v1.5** | 768 | Better | Recommended for general use |
+| **BAAI/bge-large-en-v1.5** | 1024 | Best | High-quality search (recommended) |
+| **intfloat/e5-mistral-7b** | 4096 | Ultimate | Maximum quality, needs more storage |
+
+## Migration from Legacy System
+
+Your current system uses:
+- **VLM**: Florence-2-base with detailed captions
+- **Embedding**: 384-dimensional
+- **Database**: `image_archive`
+
+The migration process creates a NEW database without affecting your existing one:
+
 ```bash
-streamlit run search/streamlit_app.py
+python migrations/migrate_legacy.py \
+    --source-db "postgresql://postgres:postgres@localhost:5432/image_archive" \
+    --target-db "postgresql://postgres:postgres@localhost:5432/photo_archive_evolution"
 ```
 
-## Architecture Decisions
+## Database Schema
 
-### Why Not CSV Storage?
-- **ACID Compliance**: PostgreSQL ensures data integrity during concurrent operations
-- **Unified Querying**: Single SQL interface for metadata filtering + vector search
-- **pgvector Performance**: Optimized HNSW indexes for fast approximate nearest neighbor search
-- **No Sync Issues**: Avoids complexity of keeping CSV and database in sync
+Key feature: **Multiple embedding columns per photo**:
 
-### Why Multiple Vector Columns vs JSONB?
-- **Type Safety**: PostgreSQL enforces correct vector dimensions per column
-- **Index Efficiency**: Each vector column can have its own optimized HNSW index
-- **Query Performance**: Direct column access is faster than JSONB extraction
-- **Clear Semantics**: Explicit schema shows which models are supported
+```sql
+CREATE TABLE photos (
+    id SERIAL PRIMARY KEY,
+    file_path VARCHAR UNIQUE,
+    caption_text TEXT,              -- Raw caption (can be re-embedded!)
+    
+    -- Multiple embedding columns:
+    embedding_384 VECTOR(384),      -- Legacy: Florence-2 + MiniLM
+    embedding_768 VECTOR(768),      -- Medium: BGE-base
+    embedding_1024 VECTOR(1024),    -- High: Qwen2.5-VL + BGE-large
+    embedding_1536 VECTOR(1536),    -- Future models
+    
+    -- Metadata:
+    capture_date TIMESTAMP,
+    latitude DOUBLE PRECISION,
+    longitude DOUBLE PRECISION,
+    is_black_and_white BOOLEAN,
+    orientation INTEGER
+);
+```
 
-### Handling Mixed Embedding Dimensions
-When searching across photos with different embedding models:
-1. **Model-Specific Mode**: User selects which model's embeddings to search (recommended)
-2. **Hybrid Mode**: Run separate searches per model, merge results with score normalization
-3. **Fallback Mode**: If query model doesn't match photo model, use text-based keyword search as fallback
+## Testing
 
-## Future Enhancements
-- Automated re-embedding pipeline when upgrading models
-- Embedding quality metrics and comparison tools
-- Distributed ingestion for large photo batches
-- Caching layer for frequently searched queries
+```bash
+# Test configuration module
+python -c "from config.pipeline_config import PipelineConfig; print('✓ Config OK')"
+
+# Test database schema (requires PostgreSQL)
+python database/evolution_schema.py
+```
+
+For complete documentation, see `QUICKSTART.md`.
