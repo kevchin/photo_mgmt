@@ -268,6 +268,7 @@ def ingest_photos(
     root_dir: Path,
     db: ImageDatabase,
     llm_config,
+    embedding_config=None,
     generate_captions: bool = True,
     detect_bw: bool = True,
     batch_size: int = 50,
@@ -280,6 +281,7 @@ def ingest_photos(
         root_dir: Root directory containing photos
         db: Database connection
         llm_config: LLM configuration
+        embedding_config: Embedding model configuration (optional)
         generate_captions: Whether to generate captions
         detect_bw: Whether to detect black & white photos
         batch_size: Batch size for inserts
@@ -358,7 +360,14 @@ def ingest_photos(
                 # Generate embedding for the caption
                 try:
                     from sentence_transformers import SentenceTransformer
-                    model = SentenceTransformer(llm_config.model_name if hasattr(llm_config, 'model_name') else 'all-MiniLM-L6-v2')
+                    # Use embedding model from config if available, otherwise default
+                    emb_model_name = 'all-MiniLM-L6-v2'
+                    if embedding_config and hasattr(embedding_config, 'model_name'):
+                        emb_model_name = embedding_config.model_name
+                    elif hasattr(llm_config, 'embedding_model_name'):
+                        emb_model_name = llm_config.embedding_model_name
+                    
+                    model = SentenceTransformer(emb_model_name)
                     caption_embedding = model.encode([caption])[0].tolist()
                 except Exception as e:
                     print(f"  Warning: Could not generate embedding: {e}")
@@ -458,6 +467,8 @@ Examples:
                        help='Level of detail for AI captions (default: basic)')
     parser.add_argument('--llm-model', type=str, default=None,
                        help='Override LLM model from config (e.g., microsoft/Florence-2-base, llama3:8b)')
+    parser.add_argument('--embedding-model', type=str, default=None,
+                       help='Embedding model for caption vectors (e.g., all-MiniLM-L6-v2 for 384 dims, text-embedding-3-small for 1536 dims)')
     
     args = parser.parse_args()
     
@@ -483,9 +494,29 @@ Examples:
     
     # Select archive or use direct DB connection
     archive = None
+    embedding_model_name = None
+    embedding_dims = 384  # Default for all-MiniLM-L6-v2
+    
     if args.db:
         # Direct DB mode - create minimal archive config
-        from archive_config_loader import ArchiveConfig, LLMConfig
+        from archive_config_loader import ArchiveConfig, LLMConfig, EmbeddingConfig
+        
+        # Determine embedding model and dimensions
+        if args.embedding_model:
+            embedding_model_name = args.embedding_model
+            # Set dimensions based on common embedding models
+            if 'text-embedding' in args.embedding_model.lower() or 'openai' in args.embedding_model.lower():
+                embedding_dims = 1536
+            elif 'all-MiniLM' in args.embedding_model:
+                embedding_dims = 384
+            elif 'bge-' in args.embedding_model.lower():
+                embedding_dims = 1024  # Common for BGE models
+            else:
+                embedding_dims = 384  # Default fallback
+        else:
+            embedding_model_name = 'all-MiniLM-L6-v2'
+            embedding_dims = 384
+        
         archive = ArchiveConfig(
             id="direct",
             name="Direct Database",
@@ -499,6 +530,10 @@ Examples:
             provider="huggingface",
             base_url="",
             model=args.llm_model or "microsoft/Florence-2-base"
+        )
+        embedding_config = EmbeddingConfig(
+            model_name=embedding_model_name,
+            dimensions=embedding_dims
         )
     elif args.archive:
         archive = config.get_archive(args.archive)
@@ -546,7 +581,17 @@ Examples:
     # Initialize database
     if not args.dry_run:
         try:
-            embedding_dims = config.embedding.dimensions if config else 384  # Default for all-MiniLM-L6-v2
+            # Use embedding dimensions from config or direct DB mode
+            if args.db:
+                # Direct DB mode - use the embedding_config we created
+                embedding_dims = embedding_config.dimensions
+                print(f"Using embedding model: {embedding_config.model_name} ({embedding_dims} dimensions)")
+            elif config:
+                # Config file mode
+                embedding_dims = config.embedding.dimensions
+            else:
+                embedding_dims = 384  # Fallback default
+            
             db = ImageDatabase(archive.db_connection, embedding_dimensions=embedding_dims)
             print("Connected to database")
         except Exception as e:
