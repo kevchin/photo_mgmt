@@ -43,7 +43,7 @@ class PhotoIngestor:
         # For embeddings, we use the caption text to generate embeddings
         # The embedding dimension comes from the caption model if it's a captioning model
         # or from the embedding model if separate
-        if self.caption_config.model_type == ModelType.CAPTIONING:
+        if self.caption_config.model_type in (ModelType.CAPTIONING, ModelType.JOINT):
             # Use the caption model's embedding dimension
             self.embedding_dimension = self.caption_config.embedding_dimension
             self.embedding_column = self.caption_config.column_name
@@ -55,7 +55,7 @@ class PhotoIngestor:
             self.caption_generator = CaptionGenerator(caption_model, device)
             self.embedder = None
         else:
-            raise ValueError("Caption model must be a captioning model")
+            raise ValueError("Caption model must be a captioning or joint model")
         
         # Verify database is ready
         self._verify_database()
