@@ -1,27 +1,24 @@
 ```
-# Python
+# Dependencies
+.venv/
+venv/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.Python
-venv/
-.venv/
-.env
-.env.local
-.env.*
-.pytest_cache/
-.mypy_cache/
-.coverage
-coverage/
 
-# Build artifacts
-dist/
+# Build and distribution
 build/
+dist/
 *.egg-info/
 
 # Logs
 *.log
+
+# Environment files
+.env
+.env.local
+*.env.*
 
 # Editors
 .vscode/
@@ -33,4 +30,26 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# Testing
+.coverage
+htmlcov/
+.coverage.*
+.nyc_output
+coverage/
+
+# Python specific
+*.so
+.Python
+*.py[cod]
+*$py.class
+*$pyc.class
+*$pyo.class
+*.so
+*.egg
+
+# Cache
+.mypy_cache/
+.pytest_cache/
+.hypothesis/
 ```
