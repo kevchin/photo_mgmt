@@ -337,34 +337,48 @@ class VectorSearch:
     def get_stats(self) -> Dict:
         """Get database statistics."""
         with self.engine.connect() as conn:
-            total_photos = conn.execute(text(f"SELECT COUNT(*) FROM {self.table_name}")).scalar()
+            total_photos = 0
+            try:
+                total_photos = conn.execute(text(f"SELECT COUNT(*) FROM {self.table_name}")).scalar()
+            except Exception as e:
+                print(f"Error getting total photos: {e}")
 
             # Check if caption_models table exists (evolution schema)
-            has_caption_models = conn.execute(text("""
-                SELECT EXISTS (
-                    SELECT FROM information_schema.tables
-                    WHERE table_name = 'caption_models'
-                )
-            """)).scalar()
+            has_caption_models = False
+            try:
+                has_caption_models = conn.execute(text("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables
+                        WHERE table_name = 'caption_models'
+                    )
+                """)).scalar()
+            except Exception as e:
+                print(f"Error checking caption_models table: {e}")
 
             models_with_counts = []
             if has_caption_models:
                 # Evolution database
-                result = conn.execute(text("SELECT * FROM caption_models"))
-                for row in result:
-                    config = get_model_config(row.model_name)
-                    count = conn.execute(text(f"""
-                        SELECT COUNT(*) FROM {self.table_name} WHERE {config.column_name} IS NOT NULL
-                    """)).scalar()
-                    models_with_counts.append({
-                        'model': row.model_name,
-                        'dimension': row.embedding_dimension,
-                        'count': count
-                    })
+                try:
+                    result = conn.execute(text("SELECT * FROM caption_models"))
+                    for row in result:
+                        try:
+                            config = get_model_config(row.model_name)
+                            count = conn.execute(text(f"""
+                                SELECT COUNT(*) FROM {self.table_name} WHERE {config.column_name} IS NOT NULL
+                            """)).scalar()
+                            models_with_counts.append({
+                                'model': row.model_name,
+                                'dimension': row.embedding_dimension,
+                                'count': count
+                            })
+                        except Exception as e:
+                            print(f"Error getting count for model {row.model_name}: {e}")
+                except Exception as e:
+                    print(f"Error getting models from caption_models: {e}")
             else:
                 # Legacy database - assume florence-2-base embeddings
                 try:
-                    count = conn.execute(text("""
+                    count = conn.execute(text(f"""
                         SELECT COUNT(*) FROM {self.table_name}
                         WHERE embedding IS NOT NULL OR embedding_vector IS NOT NULL OR embedding_florence_2_base_384 IS NOT NULL
                     """)).scalar()
@@ -374,37 +388,49 @@ class VectorSearch:
                             'dimension': 384,
                             'count': count
                         })
-                except:
-                    pass
+                except Exception as e:
+                    print(f"Error getting legacy embedding count: {e}")
 
             # Date range
-            date_range = conn.execute(text(f"""
-                SELECT MIN(capture_date), MAX(capture_date) FROM {self.table_name}
-            """)).fetchone()
+            date_range = (None, None)
+            try:
+                date_range = conn.execute(text(f"""
+                    SELECT MIN(capture_date), MAX(capture_date) FROM {self.table_name}
+                """)).fetchone()
+            except Exception as e:
+                print(f"Error getting date range: {e}")
 
             # GPS bounds
-            gps_bounds = conn.execute(text(f"""
-                SELECT MIN(latitude), MAX(latitude), MIN(longitude), MAX(longitude)
-                FROM {self.table_name} WHERE latitude IS NOT NULL
-            """)).fetchone()
+            gps_bounds = (None, None, None, None)
+            try:
+                gps_bounds = conn.execute(text(f"""
+                    SELECT MIN(latitude), MAX(latitude), MIN(longitude), MAX(longitude)
+                    FROM {self.table_name} WHERE latitude IS NOT NULL
+                """)).fetchone()
+            except Exception as e:
+                print(f"Error getting GPS bounds: {e}")
 
             # B&W count
-            bw_count = conn.execute(text("""
-                SELECT COUNT(*) FROM {self.table_name} WHERE is_black_white = TRUE
-            """)).scalar()
+            bw_count = 0
+            try:
+                bw_count = conn.execute(text(f"""
+                    SELECT COUNT(*) FROM {self.table_name} WHERE is_black_white = TRUE
+                """)).scalar()
+            except Exception as e:
+                print(f"Error getting black and white count: {e}")
 
             return {
                 'total_photos': total_photos,
                 'models': models_with_counts,
                 'date_range': {
-                    'min': date_range[0],
-                    'max': date_range[1]
+                    'min': date_range[0] if date_range else None,
+                    'max': date_range[1] if date_range else None
                 },
                 'gps_bounds': {
-                    'lat_min': float(gps_bounds[0]) if gps_bounds[0] else None,
-                    'lat_max': float(gps_bounds[1]) if gps_bounds[1] else None,
-                    'lon_min': float(gps_bounds[2]) if gps_bounds[2] else None,
-                    'lon_max': float(gps_bounds[3]) if gps_bounds[3] else None
+                    'lat_min': float(gps_bounds[0]) if gps_bounds and gps_bounds[0] else None,
+                    'lat_max': float(gps_bounds[1]) if gps_bounds and gps_bounds[1] else None,
+                    'lon_min': float(gps_bounds[2]) if gps_bounds and gps_bounds[2] else None,
+                    'lon_max': float(gps_bounds[3]) if gps_bounds and gps_bounds[3] else None
                 },
                 'black_and_white_count': bw_count
             }
