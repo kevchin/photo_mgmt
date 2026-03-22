@@ -21,6 +21,14 @@ st.set_page_config(
 # Initialize search engine
 @st.cache_resource
 def get_searcher():
+    # Use evolution database by default, but allow override via environment
+    from config.database import get_active_database_url, evolution_engine
+    from config.models import ModelType
+    
+    db_url = get_active_database_url()
+    print(f"Using database: {db_url}")
+    
+    # Default to florence-2-base for backward compatibility
     return VectorSearch(default_model="florence-2-base")
 
 
