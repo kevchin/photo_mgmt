@@ -1,37 +1,4 @@
-```python
-# Python
+```
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
-.venv/
-.env
-.env.local
-*.env.*
-.pytest_cache/
-.mypy_cache/
-.coverage
-coverage/
-
-# Build artifacts
-build/
-dist/
-*.egg-info/
-
-# Editors
-.vscode/
-.idea/
-*.swp
-*.swo
-*.tmp
-
-# Logs
-*.log
-
-# OS
-.DS_Store
-Thumbs.db
 ```
