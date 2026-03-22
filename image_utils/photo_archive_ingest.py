@@ -414,13 +414,19 @@ Examples:
   # Ingest into specific archive by ID
   %(prog)s --dir ~/Downloads/test3 --archive test_llama3
   
+  # Direct database connection (no config file needed)
+  %(prog)s --dir ~/Documents/trip_photos --db "postgresql://user:pass@localhost/dbname"
+  
+  # Direct DB with Florence-2 detailed captions
+  %(prog)s --dir ~/photos --db "$DATABASE_URL" --caption-detail detailed --llm-model microsoft/Florence-2-base
+  
   # Dry run (no database writes)
   %(prog)s --dir ~/Documents/photos1 --dry-run
   
   # Skip caption generation (faster)
   %(prog)s --dir ~/Documents/photos1 --no-captions
   
-  # Use Florence-2 with detailed captions
+  # Use Florence-2 with detailed captions via archive config
   %(prog)s --dir ~/Documents/photos1 --caption-detail detailed --llm-model microsoft/Florence-2-base
   
   # Use Florence-2 with very detailed captions
@@ -433,6 +439,8 @@ Examples:
     
     parser.add_argument('--dir', type=Path, required=True,
                        help='Root directory containing photos (YYYY/MM/DD structure)')
+    parser.add_argument('--db', type=str, default=None,
+                       help='Database connection string (overrides config file)')
     parser.add_argument('--archive', type=str, default=None,
                        help='Archive ID to use (from config file)')
     parser.add_argument('--config', type=Path, default=None,
@@ -453,17 +461,46 @@ Examples:
     
     args = parser.parse_args()
     
+    # Handle direct database connection string override
+    db_connection_string = None
+    if args.db:
+        db_connection_string = args.db
+        print(f"Using direct database connection string (overrides config)")
+    
     # Load configuration
     try:
         config = load_config(args.config)
         print(f"Loaded configuration with {len(config.archives)} archives")
     except Exception as e:
-        print(f"Error loading config: {e}")
-        print("Please create an archives_config.yaml file first")
-        sys.exit(1)
+        if args.db:
+            # If --db is provided, we can proceed without config file
+            print("Warning: Config file not loaded, but proceeding with --db parameter")
+            config = None
+        else:
+            print(f"Error loading config: {e}")
+            print("Please create an archives_config.yaml file or use --db parameter")
+            sys.exit(1)
     
-    # Select archive
-    if args.archive:
+    # Select archive or use direct DB connection
+    archive = None
+    if args.db:
+        # Direct DB mode - create minimal archive config
+        from archive_config_loader import ArchiveConfig, LLMConfig
+        archive = ArchiveConfig(
+            id="direct",
+            name="Direct Database",
+            db_connection=args.db,
+            root_dir=str(args.dir),
+            description="Direct database connection via --db parameter",
+            llm_model=args.llm_model or "microsoft/Florence-2-base",
+            caption_detail=args.caption_detail
+        )
+        llm_config = LLMConfig(
+            provider="huggingface",
+            base_url="",
+            model=args.llm_model or "microsoft/Florence-2-base"
+        )
+    elif args.archive:
         archive = config.get_archive(args.archive)
         if not archive:
             print(f"Error: Archive '{args.archive}' not found")
@@ -475,27 +512,31 @@ Examples:
             print("Error: No default archive configured")
             sys.exit(1)
     
-    print(f"\nUsing archive: {archive.name}")
-    print(f"Database: {archive.db_connection}")
-    print(f"Root directory: {archive.root_dir}")
-    
-    # Override LLM model if specified on command line, otherwise use archive config
-    llm_config = config.llm
-    
-    # Use archive-specific LLM model if defined
-    if archive.llm_model:
-        print(f"Using archive-specific LLM model: {archive.llm_model}")
-        llm_config.model = archive.llm_model
-    
-    # Command line override takes precedence
-    if args.llm_model:
-        print(f"Overriding LLM model to: {args.llm_model}")
-        llm_config.model = args.llm_model
-    
-    # Determine caption detail level (archive config or command line)
-    caption_detail = args.caption_detail if args.caption_detail != 'basic' else archive.caption_detail
-    if caption_detail != args.caption_detail and archive.caption_detail:
-        print(f"Using archive caption detail: {caption_detail}")
+    if not args.db:
+        print(f"\nUsing archive: {archive.name}")
+        print(f"Database: {archive.db_connection}")
+        print(f"Root directory: {archive.root_dir}")
+        
+        # Override LLM model if specified on command line, otherwise use archive config
+        llm_config = config.llm
+        
+        # Use archive-specific LLM model if defined
+        if archive.llm_model:
+            print(f"Using archive-specific LLM model: {archive.llm_model}")
+            llm_config.model = archive.llm_model
+        
+        # Command line override takes precedence
+        if args.llm_model:
+            print(f"Overriding LLM model to: {args.llm_model}")
+            llm_config.model = args.llm_model
+        
+        # Determine caption detail level (archive config or command line)
+        caption_detail = args.caption_detail if args.caption_detail != 'basic' else archive.caption_detail
+        if caption_detail != args.caption_detail and archive.caption_detail:
+            print(f"Using archive caption detail: {caption_detail}")
+    else:
+        # Already initialized in direct DB mode
+        caption_detail = args.caption_detail
     
     # Verify source directory exists
     if not args.dir.exists():
@@ -505,7 +546,8 @@ Examples:
     # Initialize database
     if not args.dry_run:
         try:
-            db = ImageDatabase(archive.db_connection, embedding_dimensions=config.embedding.dimensions)
+            embedding_dims = config.embedding.dimensions if config else 384  # Default for all-MiniLM-L6-v2
+            db = ImageDatabase(archive.db_connection, embedding_dimensions=embedding_dims)
             print("Connected to database")
         except Exception as e:
             print(f"Error connecting to database: {e}")

@@ -1,37 +1,90 @@
-```gitignore
-# Compiled Python files
-*.pyc
+```
+# Python
 __pycache__/
-
-# Logs and temp files
-*.log
-*.tmp
-
-# Environment files
-.env
-.env.local
-*.env.*
-
-# Editors
-.vscode/
-.idea/
-
-# Dependencies
-.venv/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
 venv/
-node_modules/
+.venv/
+.ENV
+.env
+.env.*
+.venv.bak/
+.venv/
+.python-version
+pip-log.txt
+pip-selfcheck.json
+.pytest_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+noxfile.json
+site-packages/
+.eggs/
+*.egg-info/
+.installed.cfg
+*.manifest
+*.spec
+.hypothesis/
+.coverage*
+.pyre/
+.pytype/
+.dmypy.json
+dmypy.json
+.pytest_cache/
+.coverage.xml
+.coverage.*
 
-# Build artifacts
+# Generated files
 dist/
 build/
-target/
+*.egg
+*.egg-info/
+.svn/
+.wafpickle-*
+*.so
 
-# Coverage reports
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+*.env
+*.env.*
+.env.*
+.env.local.*
+
+# Coverage
 coverage/
 htmlcov/
-.coverage
+.coverage*
 
-# OS specific
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# OS generated files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 ```
