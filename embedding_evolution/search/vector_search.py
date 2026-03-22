@@ -68,8 +68,14 @@ class VectorSearch:
         if model_name is None:
             model_name = self.default_model
         
-        config = get_model_config(model_name)
-        column_name = config.column_name
+        try:
+            config = get_model_config(model_name)
+            column_name = config.column_name
+        except ValueError:
+            # Model not in config, assume legacy database
+            print(f"Model {model_name} not found in config, trying legacy column names")
+            # Try common legacy column names
+            column_name = "embedding"
         
         # Convert vector to list for SQL
         query_vector_list = query_vector.tolist()
@@ -113,7 +119,7 @@ class VectorSearch:
         if where_clauses:
             where_clause = "WHERE " + " AND ".join(where_clauses)
         
-        # Execute search query
+        # Execute search query - try the specific column first, then fall back to legacy columns
         query = f"""
             SELECT 
                 id, file_path, file_name, caption_text, capture_date,
@@ -129,7 +135,35 @@ class VectorSearch:
         
         results = []
         with self.engine.connect() as conn:
-            result = conn.execute(text(query), params)
+            try:
+                result = conn.execute(text(query), params)
+            except Exception as e:
+                # If the specific column fails, try legacy column names
+                print(f"Search with column {column_name} failed: {e}")
+                print("Trying legacy column names...")
+                
+                for legacy_col in ["embedding", "embedding_vector", "florence_embedding"]:
+                    try:
+                        query = f"""
+                            SELECT 
+                                id, file_path, file_name, caption_text, capture_date,
+                                year, month, day, latitude, longitude, is_black_white,
+                                orientation,
+                                1 - ({legacy_col} <=> :query_vector::vector) AS similarity_score
+                            FROM photos
+                            WHERE {legacy_col} IS NOT NULL
+                            {where_clause}
+                            ORDER BY {legacy_col} <=> :query_vector::vector
+                            LIMIT :limit
+                        """
+                        result = conn.execute(text(query), params)
+                        column_name = legacy_col
+                        print(f"Successfully using legacy column: {legacy_col}")
+                        break
+                    except Exception:
+                        continue
+                else:
+                    raise Exception("Could not find any valid embedding column in the database")
             
             for row in result:
                 results.append({
@@ -174,13 +208,21 @@ class VectorSearch:
         # matching Florence-2-base's dimension
         # In production, you'd use the exact embedding model that was used during ingestion
         
-        config = get_model_config(model_name)
+        try:
+            config = get_model_config(model_name)
+            target_dimension = config.embedding_dimension
+        except ValueError:
+            # Model not in config, assume legacy database with 384-dim embeddings
+            print(f"Model {model_name} not found in config, assuming 384-dim legacy embeddings")
+            target_dimension = 384
         
         # Use appropriate embedding model based on target dimension
-        if config.embedding_dimension == 384:
+        if target_dimension == 384:
             embedder_model = "all-MiniLM-L6-v2"
-        elif config.embedding_dimension == 768:
+        elif target_dimension == 768:
             embedder_model = "all-mpnet-base-v2"
+        elif target_dimension == 1024:
+            embedder_model = "BAAI/bge-large-en-v1.5"
         else:
             # Fall back to MiniLM and hope dimensions match
             embedder_model = "all-MiniLM-L6-v2"
@@ -198,49 +240,106 @@ class VectorSearch:
     
     def get_available_models(self) -> List[Dict]:
         """Get list of models with available embeddings in the database."""
-        with self.engine.connect() as conn:
-            result = conn.execute(text("""
-                SELECT model_name, embedding_dimension, description, is_active
-                FROM caption_models
-                ORDER BY created_at DESC
-            """))
-            
-            models = []
-            for row in result:
-                # Check if this model's column has any data
-                config = get_model_config(row.model_name)
-                col_count = conn.execute(text(f"""
-                    SELECT COUNT(*) FROM photos WHERE {config.column_name} IS NOT NULL
+        try:
+            with self.engine.connect() as conn:
+                # Check if caption_models table exists
+                result = conn.execute(text("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_name = 'caption_models'
+                    )
                 """)).scalar()
                 
-                models.append({
-                    'name': row.model_name,
-                    'dimension': row.embedding_dimension,
-                    'description': row.description,
-                    'is_active': row.is_active,
-                    'photo_count': col_count
-                })
-            
-            return models
+                if not result:
+                    # Legacy database without caption_models table
+                    # Assume it has florence-2-base embeddings in a column
+                    print("Legacy database detected (no caption_models table)")
+                    # Try to count photos with embeddings
+                    try:
+                        col_count = conn.execute(text("""
+                            SELECT COUNT(*) FROM photos 
+                            WHERE embedding IS NOT NULL OR embedding_vector IS NOT NULL
+                        """)).scalar()
+                        return [{
+                            'name': 'florence-2-base',
+                            'dimension': 384,
+                            'description': 'Legacy Florence-2-base embeddings',
+                            'is_active': True,
+                            'photo_count': col_count
+                        }]
+                    except:
+                        return []
+                
+                # Evolution database with caption_models table
+                result = conn.execute(text("""
+                    SELECT model_name, embedding_dimension, description, is_active
+                    FROM caption_models
+                    ORDER BY created_at DESC
+                """))
+                
+                models = []
+                for row in result:
+                    # Check if this model's column has any data
+                    config = get_model_config(row.model_name)
+                    col_count = conn.execute(text(f"""
+                        SELECT COUNT(*) FROM photos WHERE {config.column_name} IS NOT NULL
+                    """)).scalar()
+                    
+                    models.append({
+                        'name': row.model_name,
+                        'dimension': row.embedding_dimension,
+                        'description': row.description,
+                        'is_active': row.is_active,
+                        'photo_count': col_count
+                    })
+                
+                return models
+        except Exception as e:
+            print(f"Error getting available models: {e}")
+            return []
     
     def get_stats(self) -> Dict:
         """Get database statistics."""
         with self.engine.connect() as conn:
             total_photos = conn.execute(text("SELECT COUNT(*) FROM photos")).scalar()
             
-            # Count photos with embeddings for each model
+            # Check if caption_models table exists (evolution schema)
+            has_caption_models = conn.execute(text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = 'caption_models'
+                )
+            """)).scalar()
+            
             models_with_counts = []
-            result = conn.execute(text("SELECT * FROM caption_models"))
-            for row in result:
-                config = get_model_config(row.model_name)
-                count = conn.execute(text(f"""
-                    SELECT COUNT(*) FROM photos WHERE {config.column_name} IS NOT NULL
-                """)).scalar()
-                models_with_counts.append({
-                    'model': row.model_name,
-                    'dimension': row.embedding_dimension,
-                    'count': count
-                })
+            if has_caption_models:
+                # Evolution database
+                result = conn.execute(text("SELECT * FROM caption_models"))
+                for row in result:
+                    config = get_model_config(row.model_name)
+                    count = conn.execute(text(f"""
+                        SELECT COUNT(*) FROM photos WHERE {config.column_name} IS NOT NULL
+                    """)).scalar()
+                    models_with_counts.append({
+                        'model': row.model_name,
+                        'dimension': row.embedding_dimension,
+                        'count': count
+                    })
+            else:
+                # Legacy database - assume florence-2-base embeddings
+                try:
+                    count = conn.execute(text("""
+                        SELECT COUNT(*) FROM photos 
+                        WHERE embedding IS NOT NULL OR embedding_vector IS NOT NULL OR embedding_florence_2_base_384 IS NOT NULL
+                    """)).scalar()
+                    if count > 0:
+                        models_with_counts.append({
+                            'model': 'florence-2-base',
+                            'dimension': 384,
+                            'count': count
+                        })
+                except:
+                    pass
             
             # Date range
             date_range = conn.execute(text("""
