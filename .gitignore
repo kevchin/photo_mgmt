@@ -1,1 +1,1 @@
-Nothing should be ignored based on the provided file changes. The modification of `embedding_evolution/ingestion/embedder.py` is a source code file that should be tracked in version control. There are no build artifacts, dependencies, or temporary files in the changes that require ignoring.
+Nothing should be ignored based on the provided file changes. The only modified file is a Python source file (`image_utils/streamlit_app.py`), which should not be added to .gitignore.
