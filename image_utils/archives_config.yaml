@@ -3,26 +3,41 @@
 # You can switch between these archives in the Streamlit app
 
 archives:
-  # Production archive - your main photo collection
+  # Production archive - your main photo collection with Florence-2 detailed captions
   - name: "Production Archive"
     id: "prod_v1"
-    db_connection: "postgresql://user:password@localhost:5432/photo_archive"
+    db_path: "postgresql://user:password@localhost:5432/photo_archive"
     root_dir: "~/Documents/photos1"
-    description: "Main production photo archive"
-    
-  # Test archive - for testing new captioning models
+    description: "Main production photo archive with detailed Florence-2 captions"
+    llm_model: "microsoft/Florence-2-base"
+    caption_detail: "detailed"
+
+  # Test archive - for testing Llama 3 captions via Ollama
   - name: "Test Llama 3 Captions"
     id: "test_llama3"
-    db_connection: "postgresql://user:password@localhost:5432/photo_test_llama3"
+    db_path: "postgresql://user:password@localhost:5432/photo_test_llama3"
     root_dir: "~/Downloads/test3"
-    description: "Testing Llama 3 generated captions"
-    
-  # Example: Another test archive with different settings
+    description: "Testing Llama 3 generated captions via Ollama"
+    llm_model: "llama3:8b"
+    caption_detail: "basic"
+
+  # Test archive with Florence-2 very detailed captions
+  - name: "Test Florence-2 Detailed"
+    id: "test_florence_detailed"
+    db_path: "postgresql://user:password@localhost:5432/photo_test_florence"
+    root_dir: "~/Documents/trip_photos"
+    description: "Testing Florence-2 with very detailed captions"
+    llm_model: "microsoft/Florence-2-large"
+    caption_detail: "very_detailed"
+
+  # Example: Another test archive with GPT-4
   - name: "Test GPT-4 Captions"
     id: "test_gpt4"
-    db_connection: "postgresql://user:password@localhost:5432/photo_test_gpt4"
+    db_path: "postgresql://user:password@localhost:5432/photo_test_gpt4"
     root_dir: "~/Downloads/test_gpt4"
     description: "Testing GPT-4 generated captions"
+    llm_model: "gpt-4"
+    caption_detail: "detailed"
 
 # Default archive to use when none is selected
 default_archive_id: "prod_v1"
@@ -32,9 +47,14 @@ embedding:
   model_name: "all-MiniLM-L6-v2"
   dimensions: 384
 
-# Local LLM settings for caption generation
+# Local LLM settings for caption generation (defaults, can be overridden per archive)
 llm:
   provider: "ollama"  # Options: ollama, lmstudio, openai-compatible
   base_url: "http://localhost:11434"
   model: "llama3.2"
   max_tokens: 500
+
+# Global settings
+settings:
+  default_llm_model: "microsoft/Florence-2-base"
+  default_caption_detail: "detailed"

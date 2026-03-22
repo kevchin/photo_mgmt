@@ -21,6 +21,8 @@ class ArchiveConfig:
     db_connection: str
     root_dir: str
     description: str = ""
+    llm_model: str = ""  # Optional per-archive LLM model override
+    caption_detail: str = "basic"  # Caption detail level
     
     def get_root_path(self) -> Path:
         """Get expanded root directory path"""
@@ -100,9 +102,11 @@ def load_config(config_path: Optional[Path] = None) -> GlobalConfig:
         archive = ArchiveConfig(
             name=arch_data.get('name', ''),
             id=arch_data.get('id', ''),
-            db_connection=arch_data.get('db_connection', ''),
+            db_connection=arch_data.get('db_path', ''),  # Support both db_path and db_connection
             root_dir=arch_data.get('root_dir', ''),
-            description=arch_data.get('description', '')
+            description=arch_data.get('description', ''),
+            llm_model=arch_data.get('llm_model', ''),
+            caption_detail=arch_data.get('caption_detail', 'basic')
         )
         archives.append(archive)
     
@@ -127,6 +131,14 @@ def load_config(config_path: Optional[Path] = None) -> GlobalConfig:
     
     # Get default archive ID
     default_id = data.get('default_archive_id', archives[0].id)
+    
+    # Check for settings section with defaults
+    settings_data = data.get('settings', {})
+    if settings_data.get('default_llm_model') and not llm.model:
+        llm.model = settings_data['default_llm_model']
+    if settings_data.get('default_caption_detail'):
+        # This is a global default, can be overridden per archive
+        pass
     
     return GlobalConfig(
         archives=archives,
