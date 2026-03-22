@@ -184,7 +184,7 @@ class FlorenceCaptionGenerator:
 
 
 # Alias for backwards compatibility - LocalCaptionGenerator is the same as FlorenceCaptionGenerator
-LocalCaptionGenerator = FlorenceCaptionGenerator
+    LocalCaptionGenerator = FlorenceCaptionGenerator
     
     def generate_caption(self, image_path: str, 
                         task: Optional[str] = None,
