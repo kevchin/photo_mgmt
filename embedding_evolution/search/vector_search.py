@@ -178,7 +178,7 @@ class VectorSearch:
                 print(f"Search with column {column_name} failed: {e}")
                 print("Trying legacy column names...")
 
-                for legacy_col in ["embedding", "embedding_vector", "florence_embedding"]:
+                for legacy_col in ["caption_embedding", "embedding", "embedding_vector", "florence_embedding"]:
                     try:
                         # First check if the column exists
                         col_check = conn.execute(text(f"""
