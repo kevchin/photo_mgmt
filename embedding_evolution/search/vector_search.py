@@ -180,6 +180,15 @@ class VectorSearch:
 
                 for legacy_col in ["embedding", "embedding_vector", "florence_embedding"]:
                     try:
+                        # First check if the column exists
+                        col_check = conn.execute(text(f"""
+                            SELECT column_name FROM information_schema.columns 
+                            WHERE table_name = '{self.table_name}' AND column_name = '{legacy_col}'
+                        """)).fetchone()
+                        
+                        if not col_check:
+                            continue
+                            
                         query = f"""
                             SELECT
                                 id, file_path, file_name, caption_text, capture_date,
@@ -196,7 +205,8 @@ class VectorSearch:
                         column_name = legacy_col
                         print(f"Successfully using legacy column: {legacy_col}")
                         break
-                    except Exception:
+                    except Exception as e:
+                        print(f"  Tried {legacy_col}: {e}")
                         continue
                 else:
                     raise Exception("Could not find any valid embedding column in the database")
