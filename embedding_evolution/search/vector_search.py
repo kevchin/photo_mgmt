@@ -302,7 +302,7 @@ class VectorSearch:
                     print("Legacy database detected (no caption_models table)")
                     # Try to count photos with embeddings
                     try:
-                        col_count = conn.execute(text("""
+                        col_count = conn.execute(text(f"""
                             SELECT COUNT(*) FROM {self.table_name}
                             WHERE embedding IS NOT NULL OR embedding_vector IS NOT NULL
                         """)).scalar()
