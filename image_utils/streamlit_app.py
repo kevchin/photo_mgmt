@@ -87,7 +87,7 @@ def view_image_in_browser(file_path: str, file_name: str, rotation_angle: int = 
             file_name=file_name,
             mime=mime_type,
             key=f"view_{os.path.basename(file_path)}_{rotation_angle}",
-            use_container_width=True
+            width="stretch"
         )
     except Exception as e:
         st.error(f"Could not load image: {e}")
@@ -530,7 +530,7 @@ def show_results_grid(rows, cols=3, thumb_width=250, max_display=50, total_count
                     
                     hover_caption = " | ".join(hover_parts)
                     
-                    st.image(img, width=thumb_width, use_container_width=False, caption=hover_caption)
+                    st.image(img, width="content", caption=hover_caption)
                 except Exception:
                     st.text("Could not load image")
                 
